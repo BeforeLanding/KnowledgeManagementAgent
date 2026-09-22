@@ -1,0 +1,12 @@
+{
+  "name": "knowledge-management-agent",
+  "private": true,
+  "packageManager": "pnpm@11.7.0",
+  "scripts": {
+    "dev:web": "pnpm --filter web dev",
+    "build:web": "pnpm --filter web build",
+    "lint:web": "pnpm --filter web lint",
+    "test:web": "pnpm --filter web test"
+  }
+}
+
