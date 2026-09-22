@@ -1,5 +1,7 @@
 # Knowledge Management Agent
 
+[English](README.md) | [简体中文](README.zh.md)
+
 An evaluation-driven, bilingual enterprise RAG agent with knowledge-space ACLs, hybrid retrieval, grounded citations, trace replay, and deterministic regression checks. The repository contains only synthetic, company-neutral data.
 
 ## Quick start
@@ -26,7 +28,7 @@ pnpm dev:web
 ```
 
 Run checks with `uv run pytest`, `uv run ruff check .`, `uv run mypy services/api/app`,
-`pnpm test:web`, and `pnpm build:web`. Run the model-free Week 5 gates with:
+`pnpm test:web`, and `pnpm build:web`. Run the deterministic, model-free gates with:
 
 ```bash
 uv run python scripts/evaluate.py --suite smoke
@@ -35,7 +37,7 @@ uv run python scripts/evaluate.py --suite threat
 uv run python scripts/evaluate.py --suite regression --case prompt-injection
 ```
 
-Both commands use company-neutral synthetic fixtures, an in-memory database, the production
+These commands use company-neutral synthetic fixtures, an in-memory database, the production
 bounded Agent/retrieval/citation path, and the Fake Provider. They make no external-service or
 paid-model calls. The earlier retrieval-only benchmark remains available as
 `uv run python scripts/evaluate_retrieval.py`.
