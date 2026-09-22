@@ -1,7 +1,6 @@
 import io
 
 from minio import Minio
-from minio.error import S3Error
 
 from .config import get_settings
 
@@ -34,10 +33,9 @@ class ObjectStore:
             response.release_conn()
 
     def delete(self, key: str) -> None:
-        try:
-            self.client.remove_object(self.bucket, key)
-        except S3Error:
-            pass
+        # S3-compatible DELETE is idempotent for a missing key. Other storage
+        # errors must surface so the Celery purge task can retry them.
+        self.client.remove_object(self.bucket, key)
 
 
 store = ObjectStore()

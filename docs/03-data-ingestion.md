@@ -8,3 +8,10 @@ Chunks target 700 whitespace tokens with 100-token overlap and never cross sourc
 
 Deletion immediately changes authorization-visible state, then asynchronously removes vectors, chunks and the object. Audit metadata remains without document text.
 
+## State-machine operating rules
+
+Only `failed_retryable`, `failed_permanent`, and `needs_manual_processing` documents can be manually requeued. Active, ready, and deleted documents return a conflict instead of creating concurrent ingestion attempts. A retry first removes any stale vectors and persisted chunks, then assigns fresh chunk IDs; this makes recovery safe after a partial index write.
+
+Parser and no-text failures are terminal until a curator explicitly retries them. Infrastructure and unexpected failures remain `failed_retryable`; the worker retries them up to three times with exponential backoff. Error details are redacted before persistence.
+
+PostgreSQL remains authoritative during asynchronous deletion. Every search result is rechecked against ready, non-deleted documents in an authorized space, so a stale Qdrant point is never returned while physical purge is pending. Object, vector, and chunk deletion operations are idempotent and may be retried independently.

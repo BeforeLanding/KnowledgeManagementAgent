@@ -101,7 +101,11 @@ def _filters(space_ids: list[str], filters: SearchFilters) -> models.Filter:
 
 
 def search_knowledge(
-    query: str, space_ids: list[str], filters: SearchFilters, top_k: int = 10
+    db: Session,
+    query: str,
+    space_ids: list[str],
+    filters: SearchFilters,
+    top_k: int = 10,
 ) -> list[dict]:
     if not space_ids:
         return []
@@ -125,12 +129,29 @@ def search_knowledge(
             ),
         ],
         query=models.FusionQuery(fusion=models.Fusion.RRF),
-        limit=top_k,
+        # Fetch extra candidates because PostgreSQL is authoritative and may
+        # reject stale Qdrant points left behind by an asynchronous purge.
+        limit=max(top_k * 3, 20),
         with_payload=True,
     )
     query_terms = set(terms(query))
+    candidate_ids = [str(point.id) for point in result.points]
+    visible_ids = set(
+        db.scalars(
+            select(Chunk.id)
+            .join(Document, Chunk.document_id == Document.id)
+            .where(
+                Chunk.id.in_(candidate_ids),
+                Chunk.space_id.in_(space_ids),
+                Document.status == DocumentStatus.ready,
+                Document.deleted_at.is_(None),
+            )
+        )
+    )
     items = []
     for point in result.points:
+        if str(point.id) not in visible_ids:
+            continue
         payload = point.payload or {}
         lexical_overlap = len(query_terms.intersection(terms(str(payload.get("text", "")))))
         items.append(
@@ -140,7 +161,7 @@ def search_knowledge(
                 **payload,
             }
         )
-    return sorted(items, key=lambda item: item["score"], reverse=True)
+    return sorted(items, key=lambda item: item["score"], reverse=True)[:top_k]
 
 
 def read_chunks(

@@ -6,13 +6,19 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .acl import allowed_space_ids, memberships, require_space_role
 from .agent import run_agent
 from .config import get_settings
 from .database import get_db
+from .documents import (
+    RETRYABLE_DOCUMENT_STATUSES,
+    duplicate_document,
+    next_document_version,
+    normalize_filename,
+)
 from .models import (
     AgentRun,
     AuditLog,
@@ -34,7 +40,7 @@ from .schemas import (
     UserView,
 )
 from .search import search_knowledge
-from .security import create_token, current_user, verify_password
+from .security import create_token, current_user, redact, verify_password
 from .storage import store
 from .worker import ingest_document, purge_document
 
@@ -54,6 +60,18 @@ def audit(
             details=details,
         )
     )
+
+
+def enqueue_ingestion(db: Session, document: Document) -> None:
+    """Dispatch ingestion while keeping a recoverable state if Redis is unavailable."""
+    try:
+        ingest_document.delay(document.id)
+    except Exception as exc:
+        document.status = DocumentStatus.failed_retryable
+        document.error_code = "QUEUE_ERROR"
+        document.error_message = redact(str(exc))[:1000]
+        db.commit()
+        raise
 
 
 @router.post("/auth/login", response_model=TokenResponse)
@@ -132,30 +150,22 @@ async def upload_document(
     file: Annotated[UploadFile, File()],
 ):
     require_space_role(db, user.id, space_id, SpaceRole.curator)
-    filename = file.filename or "unnamed"
+    try:
+        filename = normalize_filename(file.filename or "")
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
     suffix = "." + filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
     if suffix not in SUPPORTED:
         raise HTTPException(415, f"Unsupported file type: {suffix}")
-    content = await file.read(settings.max_email_mb * 1024 * 1024 + 1)
     limit = settings.max_email_mb if suffix == ".eml" else settings.max_file_mb
+    content = await file.read(limit * 1024 * 1024 + 1)
     if len(content) > limit * 1024 * 1024:
         raise HTTPException(413, f"File exceeds {limit} MB limit")
     digest = hashlib.sha256(content).hexdigest()
-    duplicate = db.scalar(
-        select(Document).where(
-            Document.space_id == space_id, Document.sha256 == digest, Document.deleted_at.is_(None)
-        )
-    )
+    duplicate = duplicate_document(db, space_id, digest)
     if duplicate:
         raise HTTPException(409, f"Duplicate document: {duplicate.id}")
-    version = (
-        db.scalar(
-            select(func.max(Document.version)).where(
-                Document.space_id == space_id, Document.filename == filename
-            )
-        )
-        or 0
-    )
+    version = next_document_version(db, space_id, filename)
     document = Document(
         space_id=space_id,
         filename=filename,
@@ -163,7 +173,7 @@ async def upload_document(
         size_bytes=len(content),
         sha256=digest,
         object_key=f"{space_id}/{uuid.uuid4()}/{filename}",
-        version=version + 1,
+        version=version,
         status=DocumentStatus.queued,
     )
     store.put(document.object_key, content, document.content_type)
@@ -177,9 +187,14 @@ async def upload_document(
         filename=filename,
         space_id=space_id,
     )
-    db.commit()
-    ingest_document.delay(document.id)
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        store.delete(document.object_key)
+        raise
     db.refresh(document)
+    enqueue_ingestion(db, document)
     return DocumentView(
         id=document.id,
         space_id=document.space_id,
@@ -203,12 +218,14 @@ def retry_document(
     if not document or document.deleted_at:
         raise HTTPException(404, "Document not found")
     require_space_role(db, user.id, document.space_id, SpaceRole.curator)
+    if document.status not in RETRYABLE_DOCUMENT_STATUSES:
+        raise HTTPException(409, f"Document in {document.status.value} state cannot be retried")
     document.status = DocumentStatus.queued
     document.error_code = None
     document.error_message = None
     audit(db, user.id, "document.retry", "document", document.id)
     db.commit()
-    ingest_document.delay(document.id)
+    enqueue_ingestion(db, document)
     return {"id": document.id, "status": document.status.value}
 
 
@@ -237,7 +254,7 @@ def search(
     db: Annotated[Session, Depends(get_db)],
 ):
     spaces = allowed_space_ids(db, user.id)
-    hits = search_knowledge(payload.query, spaces, payload.filters, payload.top_k)
+    hits = search_knowledge(db, payload.query, spaces, payload.filters, payload.top_k)
     audit(db, user.id, "knowledge.search", "query", None, result_count=len(hits))
     db.commit()
     return hits
@@ -324,7 +341,7 @@ def run_smoke(
     results = []
     spaces = allowed_space_ids(db, user.id)
     for case in cases:
-        hits = search_knowledge(case.query, spaces, SearchRequest(query=case.query).filters, 5)
+        hits = search_knowledge(db, case.query, spaces, SearchRequest(query=case.query).filters, 5)
         returned = {item["document_id"] for item in hits}
         expected = set(case.expected_document_ids)
         forbidden = set(case.forbidden_document_ids)

@@ -72,13 +72,16 @@ def parse_path(path: Path, display_name: str | None = None) -> list[Segment]:
         return docx_segments
     if suffix == ".xlsx":
         workbook = load_workbook(path, read_only=True, data_only=True)
-        xlsx_segments: list[Segment] = []
-        for sheet in workbook.worksheets:
-            for row_i, row in enumerate(sheet.iter_rows(values_only=True), 1):
-                text = " | ".join("" if value is None else str(value) for value in row)
-                if text.strip(" |"):
-                    xlsx_segments.append(Segment(f"sheet {sheet.title} row {row_i}", text))
-        return xlsx_segments
+        try:
+            xlsx_segments: list[Segment] = []
+            for sheet in workbook.worksheets:
+                for row_i, row in enumerate(sheet.iter_rows(values_only=True), 1):
+                    text = " | ".join("" if value is None else str(value) for value in row)
+                    if text.strip(" |"):
+                        xlsx_segments.append(Segment(f"sheet {sheet.title} row {row_i}", text))
+            return xlsx_segments
+        finally:
+            workbook.close()
     if suffix == ".csv":
         decoded = path.read_text(encoding="utf-8-sig", errors="replace")
         return [

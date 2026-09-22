@@ -31,7 +31,7 @@ def run_agent(
     started = time.perf_counter()
 
     def search_node(state: AgentState) -> dict:
-        hits = search_knowledge(state["query"], space_ids, filters, top_k=10)
+        hits = search_knowledge(db, state["query"], space_ids, filters, top_k=10)
         return {
             "hits": hits,
             "trace": state.get("trace", [])
