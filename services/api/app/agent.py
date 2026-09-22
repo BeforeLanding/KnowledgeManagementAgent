@@ -24,14 +24,13 @@ def run_agent(
     db: Session,
     user_id: str,
     query: str,
-    space_ids: list[str],
     filters: SearchFilters,
     conversation_id: str | None = None,
 ) -> ChatResponse:
     started = time.perf_counter()
 
     def search_node(state: AgentState) -> dict:
-        hits = search_knowledge(db, state["query"], space_ids, filters, top_k=10)
+        hits = search_knowledge(db, user_id, state["query"], filters, top_k=10)
         return {
             "hits": hits,
             "trace": state.get("trace", [])
@@ -39,7 +38,7 @@ def run_agent(
         }
 
     def read_node(state: AgentState) -> dict:
-        contexts = read_chunks(db, [item["chunk_id"] for item in state["hits"]], space_ids)
+        contexts = read_chunks(db, user_id, [item["chunk_id"] for item in state["hits"]])
         return {
             "contexts": contexts,
             "trace": state["trace"] + [{"tool": "read_chunks", "result_count": len(contexts)}],

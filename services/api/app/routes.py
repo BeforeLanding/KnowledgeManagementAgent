@@ -253,8 +253,7 @@ def search(
     user: Annotated[User, Depends(current_user)],
     db: Annotated[Session, Depends(get_db)],
 ):
-    spaces = allowed_space_ids(db, user.id)
-    hits = search_knowledge(db, payload.query, spaces, payload.filters, payload.top_k)
+    hits = search_knowledge(db, user.id, payload.query, payload.filters, payload.top_k)
     audit(db, user.id, "knowledge.search", "query", None, result_count=len(hits))
     db.commit()
     return hits
@@ -270,7 +269,6 @@ def chat(
         db,
         user.id,
         payload.query,
-        allowed_space_ids(db, user.id),
         payload.filters,
         payload.conversation_id,
     )
@@ -286,7 +284,6 @@ def chat_stream(
         db,
         user.id,
         payload.query,
-        allowed_space_ids(db, user.id),
         payload.filters,
         payload.conversation_id,
     )
@@ -339,9 +336,10 @@ def run_smoke(
 ):
     cases = list(db.scalars(select(EvaluationCase).where(EvaluationCase.suite == "smoke")))
     results = []
-    spaces = allowed_space_ids(db, user.id)
     for case in cases:
-        hits = search_knowledge(db, case.query, spaces, SearchRequest(query=case.query).filters, 5)
+        hits = search_knowledge(
+            db, user.id, case.query, SearchRequest(query=case.query).filters, 5
+        )
         returned = {item["document_id"] for item in hits}
         expected = set(case.expected_document_ids)
         forbidden = set(case.forbidden_document_ids)

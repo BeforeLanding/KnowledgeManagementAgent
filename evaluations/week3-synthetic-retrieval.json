@@ -1,0 +1,57 @@
+{
+  "name": "week3-synthetic-retrieval-v1",
+  "data_classification": "synthetic-company-neutral",
+  "documents": [
+    {
+      "id": "syn-journal-dispatch",
+      "text": "Synthetic engineering journal EJ-1042. Demo shipment DEMO-SG-2048 cleared inspection and is ready for dispatch."
+    },
+    {
+      "id": "syn-journal-maintenance",
+      "text": "Synthetic maintenance note. Conveyor DEMO-CV-17 receives bearing inspection every Tuesday."
+    },
+    {
+      "id": "syn-policy-retention",
+      "text": "Synthetic records policy. Training reports are retained for eighteen months before review."
+    },
+    {
+      "id": "syn-runbook-cache",
+      "text": "Synthetic runbook. A cache alert is mitigated by reducing demo traffic and checking eviction rate."
+    },
+    {
+      "id": "syn-zh-journal",
+      "text": "合成运维日志：演示仓库的温度告警已经解除，复查时间是星期五。"
+    },
+    {
+      "id": "syn-unrelated-menu",
+      "text": "Synthetic cafeteria menu includes noodles, fruit, soup and tea."
+    }
+  ],
+  "cases": [
+    {
+      "id": "dispatch-status",
+      "query": "What is the dispatch status of DEMO-SG-2048?",
+      "relevant_document_ids": ["syn-journal-dispatch"]
+    },
+    {
+      "id": "maintenance-schedule",
+      "query": "When is conveyor DEMO-CV-17 inspected?",
+      "relevant_document_ids": ["syn-journal-maintenance"]
+    },
+    {
+      "id": "retention-period",
+      "query": "How long are synthetic training reports retained?",
+      "relevant_document_ids": ["syn-policy-retention"]
+    },
+    {
+      "id": "cache-mitigation",
+      "query": "How should the demo cache alert be mitigated?",
+      "relevant_document_ids": ["syn-runbook-cache"]
+    },
+    {
+      "id": "zh-temperature-alert",
+      "query": "演示仓库的温度告警何时复查？",
+      "relevant_document_ids": ["syn-zh-journal"]
+    }
+  ]
+}

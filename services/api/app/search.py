@@ -1,13 +1,81 @@
+from collections import Counter
+from dataclasses import dataclass
+
 from qdrant_client import QdrantClient, models
-from sqlalchemy import select
+from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
 
 from .config import get_settings
-from .models import Chunk, Document, DocumentStatus
+from .models import Chunk, Document, DocumentStatus, SpaceMembership
 from .providers import embedding_provider, terms
 from .schemas import SearchFilters
 
 COLLECTION = "knowledge_chunks"
+RRF_RANK_CONSTANT = 60
+RETRIEVAL_CANDIDATE_FLOOR = 20
+RETRIEVAL_CANDIDATE_MULTIPLIER = 4
+
+
+@dataclass(frozen=True)
+class RankedCandidate:
+    chunk_id: str
+    retrieval_score: float
+
+
+def reciprocal_rank_fusion(
+    rankings: list[list[str]], rank_constant: int = RRF_RANK_CONSTANT
+) -> list[RankedCandidate]:
+    """Fuse ranked lists deterministically with reciprocal rank fusion."""
+    if rank_constant < 1:
+        raise ValueError("rank_constant must be positive")
+    scores: dict[str, float] = {}
+    first_seen: dict[str, int] = {}
+    seen_order = 0
+    for ranking in rankings:
+        for rank, chunk_id in enumerate(dict.fromkeys(ranking), start=1):
+            if chunk_id not in first_seen:
+                first_seen[chunk_id] = seen_order
+                seen_order += 1
+            scores[chunk_id] = scores.get(chunk_id, 0.0) + 1.0 / (rank_constant + rank)
+    ordered = sorted(scores, key=lambda item: (-scores[item], first_seen[item], item))
+    return [RankedCandidate(chunk_id=item, retrieval_score=scores[item]) for item in ordered]
+
+
+def lexical_rerank_score(query: str, text: str) -> float:
+    """Return a small, deterministic lexical relevance signal in the [0, 1] range."""
+    query_terms = terms(query)
+    if not query_terms:
+        return 0.0
+    query_counts = Counter(query_terms)
+    text_counts = Counter(terms(text))
+    matched = sum(1 for term in query_counts if text_counts[term])
+    coverage = matched / len(query_counts)
+    frequency = sum(min(text_counts[term], 3) for term in query_counts) / (
+        len(query_counts) * 3
+    )
+    normalized_query = " ".join(query.lower().split())
+    normalized_text = " ".join(text.lower().split())
+    phrase = float(bool(normalized_query) and normalized_query in normalized_text)
+    return 0.7 * coverage + 0.2 * frequency + 0.1 * phrase
+
+
+def rerank_candidates(
+    query: str, candidates: list[RankedCandidate], texts: dict[str, str]
+) -> list[tuple[RankedCandidate, float]]:
+    """Blend normalized hybrid rank with a bounded lexical baseline."""
+    if not candidates:
+        return []
+    maximum = max(item.retrieval_score for item in candidates) or 1.0
+    scored = [
+        (
+            item,
+            0.85 * (item.retrieval_score / maximum)
+            + 0.15 * lexical_rerank_score(query, texts.get(item.chunk_id, "")),
+        )
+        for item in candidates
+        if item.chunk_id in texts
+    ]
+    return sorted(scored, key=lambda item: (-item[1], item[0].chunk_id))
 
 
 def client() -> QdrantClient:
@@ -16,7 +84,8 @@ def client() -> QdrantClient:
 
 def ensure_collection(qdrant: QdrantClient | None = None) -> None:
     qdrant = qdrant or client()
-    if not qdrant.collection_exists(COLLECTION):
+    exists = qdrant.collection_exists(COLLECTION)
+    if not exists:
         qdrant.create_collection(
             COLLECTION,
             vectors_config={
@@ -28,8 +97,16 @@ def ensure_collection(qdrant: QdrantClient | None = None) -> None:
                 "sparse": models.SparseVectorParams(index=models.SparseIndexParams(on_disk=False))
             },
         )
-        for field in ("space_id", "document_id", "file_type"):
-            qdrant.create_payload_index(COLLECTION, field, models.PayloadSchemaType.KEYWORD)
+    payload_schema = qdrant.get_collection(COLLECTION).payload_schema or {}
+    required_indexes = {
+        "space_id": models.PayloadSchemaType.KEYWORD,
+        "document_id": models.PayloadSchemaType.KEYWORD,
+        "file_type": models.PayloadSchemaType.KEYWORD,
+        "created_at": models.PayloadSchemaType.DATETIME,
+    }
+    for field, schema in required_indexes.items():
+        if field not in payload_schema:
+            qdrant.create_payload_index(COLLECTION, field, schema)
 
 
 def index_chunks(document: Document, chunks: list[Chunk]) -> None:
@@ -100,86 +177,143 @@ def _filters(space_ids: list[str], filters: SearchFilters) -> models.Filter:
     return models.Filter(must=must)
 
 
+def _authorized_space_ids(db: Session, user_id: str) -> list[str]:
+    return list(
+        db.scalars(
+            select(SpaceMembership.space_id).where(SpaceMembership.user_id == user_id)
+        )
+    )
+
+
+def _authoritative_candidates(
+    db: Session,
+    user_id: str,
+    candidate_ids: list[str],
+    filters: SearchFilters,
+) -> dict[str, tuple[Chunk, Document]]:
+    if not candidate_ids:
+        return {}
+    conditions = [
+        Chunk.id.in_(candidate_ids),
+        SpaceMembership.user_id == user_id,
+        Document.status == DocumentStatus.ready,
+        Document.deleted_at.is_(None),
+    ]
+    if filters.document_ids:
+        conditions.append(Document.id.in_(filters.document_ids))
+    if filters.created_from:
+        conditions.append(Document.created_at >= filters.created_from)
+    if filters.created_to:
+        conditions.append(Document.created_at <= filters.created_to)
+    rows = db.execute(
+        select(Chunk, Document)
+        .join(Document, Chunk.document_id == Document.id)
+        .join(
+            SpaceMembership,
+            and_(
+                SpaceMembership.space_id == Document.space_id,
+                SpaceMembership.user_id == user_id,
+            ),
+        )
+        .where(*conditions)
+    ).all()
+    allowed_types = set(filters.file_types)
+    return {
+        chunk.id: (chunk, document)
+        for chunk, document in rows
+        if not allowed_types or document.filename.rsplit(".", 1)[-1].lower() in allowed_types
+    }
+
+
 def search_knowledge(
     db: Session,
+    user_id: str,
     query: str,
-    space_ids: list[str],
     filters: SearchFilters,
     top_k: int = 10,
 ) -> list[dict]:
+    # PostgreSQL derives authorization before any request reaches the vector index.
+    space_ids = _authorized_space_ids(db, user_id)
     if not space_ids:
         return []
     qdrant = client()
     ensure_collection(qdrant)
     indices, values = embedding_provider.sparse(query)
-    result = qdrant.query_points(
+    candidate_limit = max(top_k * RETRIEVAL_CANDIDATE_MULTIPLIER, RETRIEVAL_CANDIDATE_FLOOR)
+    qdrant_filter = _filters(space_ids, filters)
+    dense = qdrant.query_points(
         collection_name=COLLECTION,
-        prefetch=[
-            models.Prefetch(
-                query=embedding_provider.dense(query),
-                using="dense",
-                limit=max(top_k * 3, 20),
-                filter=_filters(space_ids, filters),
-            ),
-            models.Prefetch(
-                query=models.SparseVector(indices=indices, values=values),
-                using="sparse",
-                limit=max(top_k * 3, 20),
-                filter=_filters(space_ids, filters),
-            ),
-        ],
-        query=models.FusionQuery(fusion=models.Fusion.RRF),
-        # Fetch extra candidates because PostgreSQL is authoritative and may
-        # reject stale Qdrant points left behind by an asynchronous purge.
-        limit=max(top_k * 3, 20),
-        with_payload=True,
+        query=embedding_provider.dense(query),
+        using="dense",
+        query_filter=qdrant_filter,
+        limit=candidate_limit,
+        with_payload=False,
     )
-    query_terms = set(terms(query))
-    candidate_ids = [str(point.id) for point in result.points]
-    visible_ids = set(
-        db.scalars(
-            select(Chunk.id)
-            .join(Document, Chunk.document_id == Document.id)
-            .where(
-                Chunk.id.in_(candidate_ids),
-                Chunk.space_id.in_(space_ids),
-                Document.status == DocumentStatus.ready,
-                Document.deleted_at.is_(None),
-            )
-        )
+    sparse = qdrant.query_points(
+        collection_name=COLLECTION,
+        query=models.SparseVector(indices=indices, values=values),
+        using="sparse",
+        query_filter=qdrant_filter,
+        limit=candidate_limit,
+        with_payload=False,
     )
-    items = []
-    for point in result.points:
-        if str(point.id) not in visible_ids:
-            continue
-        payload = point.payload or {}
-        lexical_overlap = len(query_terms.intersection(terms(str(payload.get("text", "")))))
-        items.append(
+    fused = reciprocal_rank_fusion(
+        [[str(point.id) for point in dense.points], [str(point.id) for point in sparse.points]]
+    )
+    # Membership and every document filter are checked again from PostgreSQL.
+    authoritative = _authoritative_candidates(
+        db, user_id, [item.chunk_id for item in fused], filters
+    )
+    reranked = rerank_candidates(
+        query, fused, {chunk_id: row[0].text for chunk_id, row in authoritative.items()}
+    )
+    results = []
+    for candidate, score in reranked[:top_k]:
+        chunk, document = authoritative[candidate.chunk_id]
+        results.append(
             {
-                "chunk_id": str(point.id),
-                "score": float(point.score) + lexical_overlap * 0.001,
-                **payload,
+                "chunk_id": chunk.id,
+                "score": score,
+                "document_id": document.id,
+                "space_id": document.space_id,
+                "filename": document.filename,
+                "file_type": document.filename.rsplit(".", 1)[-1].lower(),
+                "locator": chunk.locator,
+                "text": chunk.text,
+                "created_at": document.created_at.isoformat(),
             }
         )
-    return sorted(items, key=lambda item: item["score"], reverse=True)[:top_k]
+    return results
 
 
 def read_chunks(
-    db: Session, chunk_ids: list[str], space_ids: list[str], max_words: int = 6000
+    db: Session, user_id: str, chunk_ids: list[str], max_words: int = 6000
 ) -> list[dict]:
     rows = db.execute(
         select(Chunk, Document)
         .join(Document, Chunk.document_id == Document.id)
+        .join(
+            SpaceMembership,
+            and_(
+                SpaceMembership.space_id == Document.space_id,
+                SpaceMembership.user_id == user_id,
+            ),
+        )
         .where(
             Chunk.id.in_(chunk_ids),
-            Chunk.space_id.in_(space_ids),
+            SpaceMembership.user_id == user_id,
             Document.status == DocumentStatus.ready,
             Document.deleted_at.is_(None),
         )
     ).all()
+    by_id = {chunk.id: (chunk, document) for chunk, document in rows}
     used = 0
     result = []
-    for chunk, document in rows:
+    for chunk_id in dict.fromkeys(chunk_ids):
+        row = by_id.get(chunk_id)
+        if not row:
+            continue
+        chunk, document = row
         count = len(chunk.text.split())
         if used + count > max_words:
             break
