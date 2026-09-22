@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
 from starlette.responses import Response
 
+from .agent import AgentRunError
 from .config import get_settings
 from .database import Base, engine
 from .routes import router
@@ -49,6 +50,19 @@ async def http_error(request: Request, exc: HTTPException):
             "message": str(exc.detail),
             "retryable": exc.status_code >= 500,
             "trace_id": request.headers.get("x-request-id"),
+        },
+    )
+
+
+@app.exception_handler(AgentRunError)
+async def agent_error(request: Request, exc: AgentRunError):
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "code": exc.code,
+            "message": str(exc),
+            "retryable": exc.retryable,
+            "trace_id": exc.trace_id or request.headers.get("x-request-id"),
         },
     )
 

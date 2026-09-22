@@ -8,6 +8,12 @@ Rotate JWT, model and storage secrets outside the repository. Terminate TLS at a
 
 Operational alerts should cover ingestion failure rate, queue age, search P95, provider error rate, refusal-rate shifts and ACL test failures. A release is rolled back when must-pass evaluation fails or an authorization regression is observed.
 
+## Agent and Provider operations
+
+Fake mode is the deterministic default and makes no model network call. For an OpenAI-compatible endpoint set `MODEL_PROVIDER=openai`, `OPENAI_BASE_URL`, `OPENAI_API_KEY` and `CHAT_MODEL`. Connect, read, write and pool timeouts are independently configurable with `PROVIDER_*_TIMEOUT_SECONDS`; `PROVIDER_MAX_ATTEMPTS` is capped at five and defaults to three. Retry backoff applies only before any token is emitted. Never log request bodies, authorization headers or Provider response bodies.
+
+SSE proxies must disable response buffering and allow connections longer than the configured Provider read timeout. Monitor terminal `error` events by stable error code, graph latency, refusal rate and tool result counts. A completed trace must show no more than four tool calls; the normal graph shows exactly two. The Fake Provider intentionally emits deterministic evidence-sized token chunks rather than character-level model tokens, which preserves incremental event semantics for local and unit testing.
+
 ## Retrieval operations
 
 Qdrant stores a rebuildable projection. Keep keyword payload indexes for `space_id`, `document_id` and `file_type` plus a datetime index for the ISO-8601 `created_at` payload. PostgreSQL always rechecks membership, requested document IDs, creation dates, filename-derived type, ready state and deletion state before a hit leaves the API. Never bypass this recheck to reduce latency.

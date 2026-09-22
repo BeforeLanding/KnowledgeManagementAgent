@@ -1,6 +1,6 @@
 import re
 from datetime import UTC, datetime, timedelta
-from typing import Annotated
+from typing import Annotated, Any
 
 from argon2 import PasswordHasher
 from fastapi import Depends, HTTPException, status
@@ -68,4 +68,15 @@ SENSITIVE_PATTERNS = [
 def redact(value: str) -> str:
     for pattern, replacement in SENSITIVE_PATTERNS:
         value = pattern.sub(replacement, value)
+    return value
+
+
+def redact_value(value: Any) -> Any:
+    """Recursively redact persisted and returned observability data."""
+    if isinstance(value, str):
+        return redact(value)
+    if isinstance(value, dict):
+        return {str(key): redact_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [redact_value(item) for item in value]
     return value

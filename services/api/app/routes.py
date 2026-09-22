@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .acl import allowed_space_ids, memberships, require_space_role
-from .agent import run_agent
+from .agent import run_agent, stream_agent
 from .config import get_settings
 from .database import get_db
 from .documents import (
@@ -280,24 +280,25 @@ def chat_stream(
     user: Annotated[User, Depends(current_user)],
     db: Annotated[Session, Depends(get_db)],
 ):
-    result = run_agent(
-        db,
-        user.id,
-        payload.query,
-        payload.filters,
-        payload.conversation_id,
-    )
+    user_id = user.id
 
     def events():
-        yield f"event: run_started\ndata: {json.dumps({'trace_id': result.trace_id})}\n\n"
-        yield 'event: tool_started\ndata: {"tool":"search_knowledge"}\n\n'
-        yield 'event: tool_completed\ndata: {"tool":"search_knowledge"}\n\n'
-        yield f"event: token\ndata: {json.dumps({'text': result.answer})}\n\n"
-        for citation in result.citations:
-            yield f"event: citation\ndata: {citation.model_dump_json()}\n\n"
-        yield f"event: run_completed\ndata: {result.model_dump_json()}\n\n"
+        for item in stream_agent(
+            db,
+            user_id,
+            payload.query,
+            payload.filters,
+            payload.conversation_id,
+        ):
+            data = dict(item["data"])
+            data.pop("status_code", None)
+            yield f"event: {item['event']}\ndata: {json.dumps(data)}\n\n"
 
-    return StreamingResponse(events(), media_type="text/event-stream")
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.get("/traces")

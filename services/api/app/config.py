@@ -24,6 +24,15 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     chat_model: str = ""
     embedding_model: str = ""
+    provider_connect_timeout_seconds: float = 5.0
+    provider_read_timeout_seconds: float = 60.0
+    provider_write_timeout_seconds: float = 10.0
+    provider_pool_timeout_seconds: float = 5.0
+    provider_max_attempts: int = Field(default=3, ge=1, le=5)
+    provider_retry_backoff_seconds: float = Field(default=0.25, ge=0)
+    agent_max_tool_calls: int = Field(default=4, ge=1, le=4)
+    agent_max_citations: int = Field(default=6, ge=1, le=20)
+    agent_context_words: int = Field(default=6000, ge=100, le=20000)
     web_origin: str = "http://localhost:3000"
     max_file_mb: int = 25
     max_email_mb: int = 50

@@ -30,7 +30,7 @@ Run checks with `uv run pytest`, `uv run ruff check .`, `uv run mypy services/ap
 
 ## Architecture
 
-The Next.js web app calls a FastAPI service. PostgreSQL owns identity, ACL, metadata, traces and evaluations; MinIO stores originals; Celery/Redis processes ingestion; Qdrant supplies dense and sparse candidates that the API fuses with RRF. The Agent is a bounded LangGraph with only read-only tools. See [architecture](docs/02-architecture.md), [retrieval](docs/10-retrieval.md), and [API contracts](docs/04-api-tool-contracts.md).
+The Next.js web app calls a FastAPI service. PostgreSQL owns identity, ACL, metadata, traces and evaluations; MinIO stores originals; Celery/Redis processes ingestion; Qdrant supplies dense and sparse candidates that the API fuses with RRF. The Agent is a bounded LangGraph with only read-only tools. See [architecture](docs/02-architecture.md), [Agent design](docs/11-agent.md), [retrieval](docs/10-retrieval.md), and [API contracts](docs/04-api-tool-contracts.md).
 
 ## Safety boundary
 
