@@ -2,6 +2,10 @@
 
 Copy `.env.example` to `.env`, replace all local credentials, then run `docker compose up --build`. Enable Prometheus with `docker compose --profile observability up --build`. `/health` is liveness and `/metrics` exposes HTTP counters and latency histograms.
 
+The API container runs `alembic upgrade head` before idempotent demo seeding and startup. Apply the
+same migration step before starting a separately deployed API; Week 5 is migration
+`0002_week5_evaluations`.
+
 Back up PostgreSQL, the MinIO bucket and Qdrant snapshots as one recovery set. Redis is disposable. Restore metadata and objects before the vector snapshot; if the vector snapshot is unavailable, requeue non-deleted documents for indexing.
 
 Rotate JWT, model and storage secrets outside the repository. Terminate TLS at a reverse proxy, restrict MinIO/Qdrant/PostgreSQL to the private network, configure resource limits, and replace demo credentials before any shared deployment.
@@ -20,4 +24,10 @@ Qdrant stores a rebuildable projection. Keep keyword payload indexes for `space_
 
 After restoring PostgreSQL without a matching Qdrant snapshot, requeue ready, non-deleted documents for indexing and treat search as degraded until reconciliation completes. Stale Qdrant points are safe but reduce recall and consume candidate slots; monitor document/chunk counts in PostgreSQL against Qdrant point counts and rebuild when they drift. Membership revocation and soft deletion take effect immediately through the PostgreSQL checks even if vector cleanup is delayed.
 
-Before release, run the deterministic benchmark with `uv run python scripts/evaluate_retrieval.py` and the complete check list in the roadmap. Investigate any metric drop rather than accepting a regenerated baseline automatically.
+Before release, run `uv run python scripts/evaluate.py --suite smoke` and
+`uv run python scripts/evaluate.py --suite regression`, followed by the complete check list in
+the roadmap. Both commands are external-service-free and return CI-friendly exit codes. A metric
+drop above two percentage points, or any ACL, prompt-injection or must-pass failure, blocks release.
+Investigate a regression rather than regenerating a baseline. Baseline updates require an explicit
+write/overwrite flag and a reviewed diff. The API limits synchronous runs (25 cases by default);
+do not raise that limit to turn the request worker into a batch evaluation service.

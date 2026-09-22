@@ -1,7 +1,15 @@
 from sqlalchemy import select
 
 from .database import Base, SessionLocal, engine
-from .models import EvaluationCase, KnowledgeSpace, SpaceMembership, SpaceRole, User
+from .evaluation import evaluation_configuration
+from .models import (
+    EvaluationCase,
+    EvaluationSuite,
+    KnowledgeSpace,
+    SpaceMembership,
+    SpaceRole,
+    User,
+)
 from .security import hash_password
 
 
@@ -9,6 +17,24 @@ def seed() -> None:
     Base.metadata.create_all(engine)
     with SessionLocal() as db:
         if db.scalar(select(User).limit(1)):
+            has_smoke_cases = db.scalar(
+                select(EvaluationCase.id).where(EvaluationCase.suite == "smoke").limit(1)
+            )
+            has_smoke_suite = db.scalar(
+                select(EvaluationSuite.id)
+                .where(EvaluationSuite.name == "smoke", EvaluationSuite.version == "1.0")
+                .limit(1)
+            )
+            if has_smoke_cases and not has_smoke_suite:
+                db.add(
+                    EvaluationSuite(
+                        name="smoke",
+                        version="1.0",
+                        description="Bounded synthetic smoke suite",
+                        configuration=evaluation_configuration(),
+                    )
+                )
+                db.commit()
             return
         users = [
             User(
@@ -41,11 +67,19 @@ def seed() -> None:
                 SpaceMembership(space_id=restricted.id, user_id=users[0].id, role=SpaceRole.admin),
                 SpaceMembership(space_id=public.id, user_id=users[1].id, role=SpaceRole.curator),
                 SpaceMembership(space_id=public.id, user_id=users[2].id, role=SpaceRole.viewer),
+                EvaluationSuite(
+                    name="smoke",
+                    version="1.0",
+                    description="Bounded synthetic smoke suite",
+                    configuration=evaluation_configuration(),
+                ),
                 EvaluationCase(
                     suite="smoke",
                     version="1.0",
                     query="What is the demo shipment status?",
                     tags=["single-document"],
+                    ordinal=1,
+                    is_must_pass=True,
                 ),
                 EvaluationCase(
                     suite="smoke",
@@ -53,6 +87,8 @@ def seed() -> None:
                     query="What confidential decision was made?",
                     expected_status="insufficient_evidence",
                     tags=["acl"],
+                    ordinal=2,
+                    is_must_pass=True,
                 ),
             ]
         )

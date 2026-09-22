@@ -15,6 +15,11 @@ def allowed_space_ids(db: Session, user_id: str) -> list[str]:
     return [item.space_id for item in memberships(db, user_id)]
 
 
+def has_global_role(db: Session, user_id: str, minimum: SpaceRole) -> bool:
+    """Use the user's highest current space role for evaluation administration."""
+    return any(ROLE_RANK[item.role] >= ROLE_RANK[minimum] for item in memberships(db, user_id))
+
+
 def require_space_role(
     db: Session, user_id: str, space_id: str, minimum: SpaceRole
 ) -> SpaceMembership:

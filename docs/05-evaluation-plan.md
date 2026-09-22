@@ -6,10 +6,36 @@ Retrieval reports Recall@K, MRR and nDCG. Deterministic answer checks validate s
 
 ACL, injection and must-pass cases require 100%. Other core metrics cannot regress by more than two percentage points from the accepted baseline. Every production-like defect is first captured as a failing case, tagged with root cause, then retained permanently.
 
-The committed Smoke suite is intentionally model-free. The Week 3 retrieval suite in `evaluations/week3-synthetic-retrieval.json` is also explicitly company-neutral synthetic data. It uses deterministic local hashed dense and sparse vectors, the production RRF and rerank functions, and reports macro-average Recall@5, MRR and nDCG@5. Run it with:
+The committed Smoke and Regression profiles are built from
+`evaluations/week5-synthetic-regression-v1.json`, which is explicitly labelled
+`synthetic-company-neutral`. Cases contain query, language, a server-resolved acting-user key,
+expected status, expected/forbidden document and optional chunk sources, required facts, rubric,
+tags and a must-pass flag. Suite configuration records prompt, model, provider, embedding,
+chunking, retrieval and code versions. PostgreSQL persists the trusted runtime mapping and remains
+authoritative for users, memberships, document lifecycle and citation fields.
+
+The deterministic Runner invokes the existing bounded Agent with the Fake Provider. It reports
+Recall@5, MRR, nDCG@5, status/refusal accuracy, required-fact coverage, citation accuracy and
+completeness, forbidden-source safety, ACL isolation, conflict preservation and prompt-injection
+safety. Citation validation compares the exact document ID, chunk ID, filename, locator and
+snippet against a ready, non-deleted, currently authorized PostgreSQL row. Cases are isolated,
+sorted by ordinal and ID, and a case exception cannot abort the suite.
+
+Run the gates with:
 
 ```bash
-uv run python scripts/evaluate_retrieval.py
+uv run python scripts/evaluate.py --suite smoke
+uv run python scripts/evaluate.py --suite regression
+uv run python scripts/evaluate.py --suite regression --case prompt-injection
 ```
 
-The small suite is a repeatable engineering regression check, not a claim about production quality. Its checked-in baseline is Recall@5 ≥ 0.90, MRR ≥ 0.80 and nDCG@5 ≥ 0.85. A larger suite is populated after synthetic documents receive stable IDs, then versioned with prompt, model, embedding, chunking and retrieval configuration.
+The checked-in versioned baselines live under `evaluations/baselines/`. Core metrics may fall by
+at most 0.02; any ACL, prompt-injection or must-pass case failure fails the Gate. A normal run never
+rewrites a baseline. Updating one requires the explicit `--write-baseline PATH` option and
+`--overwrite-baseline` for an existing file, followed by human review of the diff. Exit codes are
+0 for pass, 1 for regression and 2 for invalid input/runtime failure.
+
+The Week 3 retrieval-only benchmark remains available through
+`scripts/evaluate_retrieval.py`. A configured LLM judge is still optional design space only: it
+is not implemented or used by the default Gate, and must not gate releases before the documented
+human calibration threshold is met.

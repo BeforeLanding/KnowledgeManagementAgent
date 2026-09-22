@@ -39,6 +39,9 @@ class Settings(BaseSettings):
     chunk_tokens: int = 700
     chunk_overlap: int = 100
     trace_redaction: bool = True
+    evaluation_sync_case_limit: int = Field(default=25, ge=1, le=100)
+    evaluation_max_regression: float = Field(default=0.02, ge=0, le=1)
+    code_version: str = "development"
 
 
 @lru_cache

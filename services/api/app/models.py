@@ -159,3 +159,63 @@ class EvaluationCase(Base):
     forbidden_document_ids: Mapped[list] = mapped_column(JSON, default=list)
     required_facts: Mapped[list] = mapped_column(JSON, default=list)
     tags: Mapped[list] = mapped_column(JSON, default=list)
+    acting_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True, index=True
+    )
+    expected_sources: Mapped[list] = mapped_column(JSON, default=list)
+    forbidden_sources: Mapped[list] = mapped_column(JSON, default=list)
+    rubric: Mapped[dict] = mapped_column(JSON, default=dict)
+    ordinal: Mapped[int] = mapped_column(Integer, default=0)
+    is_must_pass: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class EvaluationSuite(Base):
+    __tablename__ = "evaluation_suites"
+    __table_args__ = (UniqueConstraint("name", "version"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    name: Mapped[str] = mapped_column(String(120), index=True)
+    version: Mapped[str] = mapped_column(String(40))
+    description: Mapped[str] = mapped_column(Text, default="")
+    data_classification: Mapped[str] = mapped_column(
+        String(80), default="synthetic-company-neutral"
+    )
+    configuration: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+
+
+class EvaluationRun(Base):
+    __tablename__ = "evaluation_runs"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    suite_name: Mapped[str] = mapped_column(String(120), index=True)
+    suite_version: Mapped[str] = mapped_column(String(40))
+    requested_by_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    status: Mapped[str] = mapped_column(String(40), default="running", index=True)
+    configuration: Mapped[dict] = mapped_column(JSON, default=dict)
+    metrics: Mapped[dict] = mapped_column(JSON, default=dict)
+    total_cases: Mapped[int] = mapped_column(Integer, default=0)
+    passed_cases: Mapped[int] = mapped_column(Integer, default=0)
+    gate_passed: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    safe_summary: Mapped[str] = mapped_column(Text, default="")
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class EvaluationCaseResult(Base):
+    __tablename__ = "evaluation_case_results"
+    __table_args__ = (UniqueConstraint("run_id", "case_id"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    run_id: Mapped[str] = mapped_column(
+        ForeignKey("evaluation_runs.id", ondelete="CASCADE"), index=True
+    )
+    case_id: Mapped[str] = mapped_column(ForeignKey("evaluation_cases.id"), index=True)
+    ordinal: Mapped[int] = mapped_column(Integer, default=0)
+    passed: Mapped[bool] = mapped_column(Boolean, default=False)
+    actual_status: Mapped[str] = mapped_column(String(40), default="failed")
+    latency_ms: Mapped[int] = mapped_column(Integer, default=0)
+    error_category: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    metrics: Mapped[dict] = mapped_column(JSON, default=dict)
+    safe_summary: Mapped[str] = mapped_column(Text, default="")

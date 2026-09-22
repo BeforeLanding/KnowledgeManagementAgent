@@ -9,3 +9,12 @@ Trace fields are recursively redacted for common email, phone and token/secret p
 OpenAI-compatible failures use stable classes: `PROVIDER_TIMEOUT`, `PROVIDER_RATE_LIMITED`, `PROVIDER_NETWORK_ERROR`, `PROVIDER_SERVER_ERROR`, `PROVIDER_REQUEST_REJECTED`, `PROVIDER_INVALID_RESPONSE`, and `PROVIDER_CONFIG_ERROR`. Only retryable failures before the first emitted token are retried, up to the configured attempt limit; retry after partial output is forbidden to prevent duplicated text.
 
 Known MVP limitations: access tokens are held in browser session storage rather than production-grade HttpOnly cookies; MIME signature inspection and archive-bomb scanning need a dedicated upload gateway before internet exposure; refresh-token rotation is modelled but not yet exposed as an endpoint.
+
+Evaluation files are accepted only when explicitly labelled `synthetic-company-neutral`.
+Acting users are resolved from trusted server data, not request bodies. The Runner recomputes all
+outcomes and validates every citation against PostgreSQL; suite expectations, Qdrant payloads,
+model output and clients cannot declare authorization or a pass. Persisted evaluation rows contain
+configuration, aggregate numbers, stable error categories and redacted summaries only. They do not
+contain document bodies, credentials, raw sensitive traces, raw Provider responses or invisible
+citations. Viewer and curator run listings are requester-scoped; cross-user execution and
+inspection require an administrator role.

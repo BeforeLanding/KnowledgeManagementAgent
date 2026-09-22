@@ -23,3 +23,10 @@ The same graph emits typed incremental events for synchronous chat and SSE. The 
 The public REST and tool contracts are unchanged. Internally, retrieval accepts an authenticated `user_id` instead of caller-supplied space IDs so clients, model output and stale agent state cannot choose the authorization scope. See [retrieval design](10-retrieval.md).
 
 Compose is the deployment unit for V1. API and worker are stateless; PostgreSQL, Qdrant and MinIO own persistent volumes and can later move to managed equivalents.
+
+Week 5 adds a versioned evaluation layer around the existing graph rather than a second RAG
+implementation. PostgreSQL stores suite metadata, trusted acting-user bindings, run configuration
+snapshots, aggregate metrics and redacted per-case outcomes. Each case runs in an isolated database
+session with the Fake Provider by default; failures are converted into safe outcomes and do not
+stop later cases. The local CLI supplies an in-memory deterministic candidate index, while the
+production search and PostgreSQL authorization joins remain unchanged.

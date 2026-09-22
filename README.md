@@ -25,7 +25,17 @@ pnpm dev:web
 ```
 
 Run checks with `uv run pytest`, `uv run ruff check .`, `uv run mypy services/api/app`,
-`pnpm test:web`, and `pnpm build:web`. Run the model-free synthetic retrieval benchmark with
+`pnpm test:web`, and `pnpm build:web`. Run the model-free Week 5 gates with:
+
+```bash
+uv run python scripts/evaluate.py --suite smoke
+uv run python scripts/evaluate.py --suite regression
+uv run python scripts/evaluate.py --suite regression --case prompt-injection
+```
+
+Both commands use company-neutral synthetic fixtures, an in-memory database, the production
+bounded Agent/retrieval/citation path, and the Fake Provider. They make no external-service or
+paid-model calls. The earlier retrieval-only benchmark remains available as
 `uv run python scripts/evaluate_retrieval.py`.
 
 ## Architecture

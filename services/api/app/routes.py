@@ -9,7 +9,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .acl import allowed_space_ids, memberships, require_space_role
+from .acl import allowed_space_ids, has_global_role, memberships, require_space_role
 from .agent import run_agent, stream_agent
 from .config import get_settings
 from .database import get_db
@@ -19,12 +19,16 @@ from .documents import (
     next_document_version,
     normalize_filename,
 )
+from .evaluation import persist_suite_outcome, public_outcome, run_evaluation_suite
 from .models import (
     AgentRun,
     AuditLog,
     Document,
     DocumentStatus,
     EvaluationCase,
+    EvaluationCaseResult,
+    EvaluationRun,
+    EvaluationSuite,
     KnowledgeSpace,
     SpaceRole,
     User,
@@ -328,29 +332,179 @@ def traces(user: Annotated[User, Depends(current_user)], db: Annotated[Session, 
 def evaluation_cases(
     user: Annotated[User, Depends(current_user)], db: Annotated[Session, Depends(get_db)]
 ):
-    return list(db.scalars(select(EvaluationCase).limit(500)))
+    if not has_global_role(db, user.id, SpaceRole.admin):
+        raise HTTPException(403, "Evaluation case definitions require administrator access")
+    return list(
+        db.scalars(
+            select(EvaluationCase).order_by(
+                EvaluationCase.suite, EvaluationCase.version, EvaluationCase.ordinal
+            ).limit(500)
+        )
+    )
+
+
+@router.get("/evaluations/suites")
+def evaluation_suites(
+    user: Annotated[User, Depends(current_user)], db: Annotated[Session, Depends(get_db)]
+):
+    del user
+    suites = list(
+        db.scalars(
+            select(EvaluationSuite)
+            .where(EvaluationSuite.data_classification == "synthetic-company-neutral")
+            .order_by(EvaluationSuite.name, EvaluationSuite.version.desc())
+        )
+    )
+    return [
+        {
+            "name": item.name,
+            "version": item.version,
+            "description": item.description,
+            "data_classification": item.data_classification,
+        }
+        for item in suites
+    ]
+
+
+def _bounded_run(
+    db: Session,
+    user: User,
+    suite: str,
+    version: str | None,
+    *,
+    acting_user_override: str | None = None,
+):
+    suite_statement = select(EvaluationSuite).where(EvaluationSuite.name == suite)
+    if version is not None:
+        suite_statement = suite_statement.where(EvaluationSuite.version == version)
+    suite_record = db.scalar(
+        suite_statement.order_by(
+            EvaluationSuite.created_at.desc(), EvaluationSuite.version.desc()
+        ).limit(1)
+    )
+    if suite_record and suite_record.data_classification != "synthetic-company-neutral":
+        raise HTTPException(400, "Only company-neutral synthetic suites may be executed")
+    if version is None:
+        version = suite_record.version if suite_record else None
+    count = len(
+        list(
+            db.scalars(
+                select(EvaluationCase.id).where(
+                    EvaluationCase.suite == suite,
+                    *([EvaluationCase.version == version] if version else []),
+                )
+            )
+        )
+    )
+    if count > settings.evaluation_sync_case_limit:
+        raise HTTPException(
+            409,
+            "Suite exceeds the synchronous evaluation limit; use the local/CI runner",
+        )
+    try:
+        outcome = run_evaluation_suite(
+            db,
+            suite,
+            version,
+            acting_user_override=acting_user_override,
+        )
+    except ValueError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    persisted = persist_suite_outcome(db, user.id, outcome)
+    result = public_outcome(outcome)
+    result["run_id"] = persisted.id
+    return result
 
 
 @router.post("/evaluations/smoke")
 def run_smoke(
     user: Annotated[User, Depends(current_user)], db: Annotated[Session, Depends(get_db)]
 ):
-    cases = list(db.scalars(select(EvaluationCase).where(EvaluationCase.suite == "smoke")))
-    results = []
-    for case in cases:
-        hits = search_knowledge(
-            db, user.id, case.query, SearchRequest(query=case.query).filters, 5
-        )
-        returned = {item["document_id"] for item in hits}
-        expected = set(case.expected_document_ids)
-        forbidden = set(case.forbidden_document_ids)
-        passed = expected.issubset(returned) and not returned.intersection(forbidden)
-        results.append({"case_id": case.id, "passed": passed, "returned": list(returned)})
-    audit(db, user.id, "evaluation.run", "suite", None, suite="smoke", total=len(cases))
+    result = _bounded_run(db, user, "smoke", None, acting_user_override=user.id)
+    audit(db, user.id, "evaluation.run", "suite", result["run_id"], suite="smoke")
     db.commit()
+    return result
+
+
+@router.post("/evaluations/suites/{suite}/runs")
+def run_named_evaluation_suite(
+    suite: str,
+    user: Annotated[User, Depends(current_user)],
+    db: Annotated[Session, Depends(get_db)],
+    version: str | None = None,
+):
+    if not has_global_role(db, user.id, SpaceRole.admin):
+        raise HTTPException(403, "Only administrators may run configured acting-user suites")
+    result = _bounded_run(db, user, suite, version)
+    audit(db, user.id, "evaluation.run", "suite", result["run_id"], suite=suite)
+    db.commit()
+    return result
+
+
+@router.get("/evaluations/runs")
+def evaluation_runs(
+    user: Annotated[User, Depends(current_user)], db: Annotated[Session, Depends(get_db)]
+):
+    statement = select(EvaluationRun)
+    if not has_global_role(db, user.id, SpaceRole.admin):
+        statement = statement.where(EvaluationRun.requested_by_id == user.id)
+    runs = list(db.scalars(statement.order_by(EvaluationRun.started_at.desc()).limit(50)))
+    return [
+        {
+            "id": run.id,
+            "suite": run.suite_name,
+            "version": run.suite_version,
+            "status": run.status,
+            "total": run.total_cases,
+            "passed": run.passed_cases,
+            "gate_passed": run.gate_passed,
+            "metrics": run.metrics,
+            "safe_summary": run.safe_summary,
+            "started_at": run.started_at,
+            "completed_at": run.completed_at,
+        }
+        for run in runs
+    ]
+
+
+@router.get("/evaluations/runs/{run_id}")
+def evaluation_run(
+    run_id: str,
+    user: Annotated[User, Depends(current_user)],
+    db: Annotated[Session, Depends(get_db)],
+):
+    run = db.get(EvaluationRun, run_id)
+    if not run:
+        raise HTTPException(404, "Evaluation run not found")
+    if run.requested_by_id != user.id and not has_global_role(db, user.id, SpaceRole.admin):
+        raise HTTPException(403, "Evaluation run is not accessible")
+    results = list(
+        db.scalars(
+            select(EvaluationCaseResult)
+            .where(EvaluationCaseResult.run_id == run.id)
+            .order_by(EvaluationCaseResult.ordinal, EvaluationCaseResult.case_id)
+        )
+    )
     return {
-        "suite": "smoke",
-        "total": len(results),
-        "passed": sum(item["passed"] for item in results),
-        "results": results,
+        "id": run.id,
+        "suite": run.suite_name,
+        "version": run.suite_version,
+        "status": run.status,
+        "total": run.total_cases,
+        "passed": run.passed_cases,
+        "gate_passed": run.gate_passed,
+        "metrics": run.metrics,
+        "safe_summary": run.safe_summary,
+        "results": [
+            {
+                "case_id": item.case_id,
+                "passed": item.passed,
+                "status": item.actual_status,
+                "latency_ms": item.latency_ms,
+                "error_category": item.error_category,
+                "metrics": item.metrics,
+                "safe_summary": item.safe_summary,
+            }
+            for item in results
+        ],
     }
