@@ -18,3 +18,21 @@ configuration, aggregate numbers, stable error categories and redacted summaries
 contain document bodies, credentials, raw sensitive traces, raw Provider responses or invisible
 citations. Viewer and curator run listings are requester-scoped; cross-user execution and
 inspection require an administrator role.
+
+## Week 6 threat model and release controls
+
+Protected decisions are authenticated user identity, current memberships, knowledge-space scope,
+document readiness/deletion, chunk visibility, citation validity and evaluation Gate status.
+Untrusted parties include clients, model output, source documents, Qdrant payloads, evaluation
+files, load scripts and the Web UI. None can set those protected decisions. Unknown request fields
+are rejected; searches request no Qdrant payload and PostgreSQL supplies every returned field.
+
+Direct and indirect instructions inside documents remain data. Citation-looking model text is only
+answer text; citations are constructed from authorized rows after the model stream. Security
+metrics use bounded categories only. Queries, answers, filenames, user email, IDs, credentials,
+raw errors, raw Provider responses and source text are forbidden as labels or readiness details.
+
+Production startup rejects default/short JWT secrets, local MinIO credentials, demo seeding,
+non-HTTPS OpenAI-compatible endpoints, missing model credentials and Fake Provider mode. This is
+application hardening, not a claim of penetration testing, certification, complete upload malware
+scanning or production SSO.

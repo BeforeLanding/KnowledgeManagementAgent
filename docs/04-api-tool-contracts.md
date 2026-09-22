@@ -19,6 +19,11 @@ All `/api/v1` endpoints except login require a bearer access token. Errors use `
 | POST | `/evaluations/suites/{name}/runs` | Run a bounded configured suite (admin) |
 | GET | `/evaluations/runs` | Recent own runs, or all runs for admins |
 | GET | `/evaluations/runs/{id}` | Safe run and failed-case summaries |
+| GET | `/operations/status` | Authenticated redacted readiness, latest Gate and security summary |
+
+Outside `/api/v1`, `GET /health`, `GET /health/live`, `GET /health/ready`, and `GET /metrics`
+provide compatible liveness, dependency readiness and Prometheus scraping. Readiness returns 503
+when a required dependency is unavailable and never returns raw exceptions or credentials.
 
 `search_knowledge` accepts query, document/date/type filters and top-k ≤20. `space_ids` never appear in the public contract: the server derives them. `read_chunks` accepts chunk IDs and a context budget, rechecks space and ready-document status, and returns source locators. `list_sources` is represented by document metadata endpoints and must follow the same membership check when expanded.
 
@@ -33,3 +38,7 @@ or inspect another user's run. Client requests cannot set acting users, authoriz
 source IDs or pass/fail values. Synchronous API runs are capped at 25 cases by default; larger
 suites use the local/CI CLI. Responses contain aggregate metrics and redacted summaries, never
 document bodies, raw Provider responses or invisible citations.
+
+Request models reject unknown fields. In particular, `user_id`, `space_id`, authorization scope,
+pass/fail values and model-proposed document/chunk identifiers are not accepted as hidden public
+inputs. Existing documented fields and response shapes are unchanged.

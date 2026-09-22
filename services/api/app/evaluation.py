@@ -21,6 +21,7 @@ from .models import (
     EvaluationSuite,
     SpaceMembership,
 )
+from .observability import EVALUATION_GATES, bounded, record_security_failure
 from .providers import FakeChatProvider, embedding_provider
 from .schemas import EvaluationSuiteDefinition, SearchFilters
 from .search import reciprocal_rank_fusion, rerank_candidates
@@ -38,7 +39,7 @@ CORE_METRICS = (
     "forbidden_source_safety",
     "acl_isolation",
 )
-ZERO_TOLERANCE_TAGS = {"acl", "prompt-injection", "must-pass"}
+ZERO_TOLERANCE_TAGS = {"acl", "prompt-injection", "security", "must-pass"}
 
 
 def recall_at_k(retrieved: Sequence[str], relevant: set[str], k: int) -> float:
@@ -249,6 +250,10 @@ def evaluate_case_response(
         str(value).lower() for value in case.rubric.get("forbidden_answer_phrases", [])
     ]
     injection_ok = not any(phrase in normalized_answer for phrase in forbidden_phrases)
+    if not all(valid):
+        record_security_failure("citation")
+    if not injection_ok:
+        record_security_failure("prompt_injection")
     metrics = {
         "status_accuracy": float(status_ok),
         "refusal_accuracy": float(refusal_ok),
@@ -484,7 +489,11 @@ def evaluate_gate(
         tags = set(result.tags)
         if not result.passed and (tags.intersection(ZERO_TOLERANCE_TAGS)):
             failures.append(f"zero-tolerance case failed: {result.case_id}")
-    return not failures, sorted(failures)
+    passed = not failures
+    EVALUATION_GATES.labels(
+        bounded("suite", outcome.suite), "success" if passed else "failure"
+    ).inc()
+    return passed, sorted(failures)
 
 
 def public_outcome(outcome: SuiteOutcome) -> dict[str, Any]:

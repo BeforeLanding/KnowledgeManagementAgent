@@ -30,3 +30,15 @@ snapshots, aggregate metrics and redacted per-case outcomes. Each case runs in a
 session with the Fake Provider by default; failures are converted into safe outcomes and do not
 stop later cases. The local CLI supplies an in-memory deterministic candidate index, while the
 production search and PostgreSQL authorization joins remain unchanged.
+
+Week 6 keeps this topology and adds cross-cutting controls rather than a second platform.
+Content-free, low-cardinality metrics cover ingestion transitions, queue events, retrieval stages,
+Agent nodes, Provider outcomes, evaluation Gates, refusals, citations, security failures and
+dependency readiness. Request IDs and Agent trace IDs are safe UUID correlation values in headers
+and redacted traces; they are not metric labels. `/health/live` does not touch dependencies, while
+`/health/ready` checks PostgreSQL, Redis, Qdrant and MinIO and returns only ready/unavailable codes.
+
+The authenticated operations summary exposes readiness, the most recent persisted evaluation Gate
+and aggregate 24-hour failed/refusal counts. It never exposes topology, content, filenames,
+invisible citations, raw errors or high-cardinality identifiers. PostgreSQL remains authoritative;
+Qdrant and MinIO are checked as derived/index and object projections.

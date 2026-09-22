@@ -15,3 +15,7 @@ Only `failed_retryable`, `failed_permanent`, and `needs_manual_processing` docum
 Parser and no-text failures are terminal until a curator explicitly retries them. Infrastructure and unexpected failures remain `failed_retryable`; the worker retries them up to three times with exponential backoff. Error details are redacted before persistence.
 
 PostgreSQL remains authoritative during asynchronous deletion. Every search result is rechecked against ready, non-deleted documents in an authorized space, so a stale Qdrant point is never returned while physical purge is pending. Object, vector, and chunk deletion operations are idempotent and may be retried independently.
+
+Week 6 exposes content-free ingestion transition counters plus bounded ingestion/purge queue event,
+active-task and observed-age gauges. Labels contain only documented lifecycle/event values. Queue
+metrics are operational signals, not authorization inputs, and Redis remains disposable.

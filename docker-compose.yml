@@ -1,6 +1,15 @@
 name: knowledge-management-agent
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+x-service-defaults: &service-defaults
+  restart: unless-stopped
+  logging: *default-logging
 services:
   postgres:
+    <<: *service-defaults
     image: postgres:17-alpine
     environment:
       POSTGRES_USER: kma
@@ -12,24 +21,43 @@ services:
       timeout: 3s
       retries: 20
     volumes: [postgres-data:/var/lib/postgresql/data]
+    networks: [backend]
   redis:
+    <<: *service-defaults
     image: redis:7-alpine
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
       retries: 20
+    networks: [backend]
   qdrant:
+    <<: *service-defaults
     image: qdrant/qdrant:v1.15.4
     volumes: [qdrant-data:/qdrant/storage]
+    ports: ["127.0.0.1:6333:6333"]
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/6333'"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [backend]
   minio:
+    <<: *service-defaults
     image: minio/minio:RELEASE.2025-07-23T15-54-02Z
     command: server /data --console-address :9001
     environment:
       MINIO_ROOT_USER: kma-local
       MINIO_ROOT_PASSWORD: change-me-local-only
     volumes: [minio-data:/data]
-  api:
+    ports: ["127.0.0.1:9000:9000", "127.0.0.1:9001:9001"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [backend]
+  migrate:
     build:
       context: .
       dockerfile: services/api/Dockerfile
@@ -37,14 +65,39 @@ services:
       - path: .env.example
       - path: .env
         required: false
-    command: ["sh", "-c", "cd /workspace && alembic upgrade head && cd services/api && python -m app.seed && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
-    ports: ["8000:8000"]
+    command: ["sh", "-c", "cd /workspace && alembic upgrade head"]
     depends_on:
       postgres: {condition: service_healthy}
+    restart: "no"
+    logging: *default-logging
+    networks: [backend]
+  api:
+    <<: *service-defaults
+    build:
+      context: .
+      dockerfile: services/api/Dockerfile
+    env_file:
+      - path: .env.example
+      - path: .env
+        required: false
+    command: ["sh", "-c", "cd services/api && python -m app.seed && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+    ports: ["8000:8000"]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
       redis: {condition: service_healthy}
-      qdrant: {condition: service_started}
-      minio: {condition: service_started}
+      qdrant: {condition: service_healthy}
+      minio: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    deploy:
+      resources:
+        limits: {cpus: "2.0", memory: 2G}
+    networks: [backend, edge]
   worker:
+    <<: *service-defaults
     build:
       context: .
       dockerfile: services/api/Dockerfile
@@ -54,27 +107,44 @@ services:
         required: false
     command: ["celery", "-A", "app.worker.celery_app", "worker", "--loglevel=INFO"]
     depends_on:
-      postgres: {condition: service_healthy}
+      migrate: {condition: service_completed_successfully}
       redis: {condition: service_healthy}
-      qdrant: {condition: service_started}
-      minio: {condition: service_started}
+      qdrant: {condition: service_healthy}
+      minio: {condition: service_healthy}
+    deploy:
+      resources:
+        limits: {cpus: "2.0", memory: 2G}
+    networks: [backend]
   web:
+    <<: *service-defaults
     build:
       context: .
       dockerfile: apps/web/Dockerfile
     environment:
       NEXT_PUBLIC_API_URL: http://localhost:8000
     ports: ["3000:3000"]
-    depends_on: [api]
+    depends_on:
+      api: {condition: service_healthy}
+    deploy:
+      resources:
+        limits: {cpus: "1.0", memory: 1G}
+    networks: [edge]
   prometheus:
+    <<: *service-defaults
     image: prom/prometheus:v3.5.0
     profiles: [observability]
     command: ["--config.file=/etc/prometheus/prometheus.yml"]
     volumes:
       - ./infra/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./infra/alerts.yml:/etc/prometheus/alerts.yml:ro
     ports: ["9090:9090"]
+    networks: [backend, edge]
 
 volumes:
   postgres-data:
   qdrant-data:
   minio-data:
+networks:
+  backend:
+    internal: true
+  edge:

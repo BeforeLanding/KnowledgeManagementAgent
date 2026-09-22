@@ -18,6 +18,7 @@ For an OpenAI-compatible model, set `MODEL_PROVIDER=openai`, `OPENAI_BASE_URL`, 
 
 ```bash
 uv sync --dev
+uv run alembic upgrade head
 uv run --directory services/api python -m app.seed
 uv run uvicorn app.main:app --reload --app-dir services/api
 pnpm install
@@ -30,6 +31,7 @@ Run checks with `uv run pytest`, `uv run ruff check .`, `uv run mypy services/ap
 ```bash
 uv run python scripts/evaluate.py --suite smoke
 uv run python scripts/evaluate.py --suite regression
+uv run python scripts/evaluate.py --suite threat
 uv run python scripts/evaluate.py --suite regression --case prompt-injection
 ```
 
@@ -38,6 +40,25 @@ bounded Agent/retrieval/citation path, and the Fake Provider. They make no exter
 paid-model calls. The earlier retrieval-only benchmark remains available as
 `uv run python scripts/evaluate_retrieval.py`.
 
+Week 6 adds deterministic threat coverage, bounded load tooling, low-cardinality metrics,
+dependency readiness, safe operations scripts, and release hardening. Expensive load tests never
+run by default:
+
+```bash
+# plan only
+uv run python scripts/load_test.py --mode plan --documents 10000 --confirm-expensive
+# measured in-process microbenchmark; not a production capacity result
+uv run python scripts/load_test.py --mode local --documents 1000 --requests 1000 --execute
+# operations are dry-run unless their explicit execute/confirmation flags are supplied
+uv run python scripts/backup.py --target data/backups/example
+uv run python scripts/check_consistency.py
+```
+
+`/health/live` is process liveness, `/health/ready` checks required dependencies, and the
+authenticated `/api/v1/operations/status` endpoint feeds the lightweight release view. See
+[deployment and operations](docs/08-deployment-operations.md) and the
+[Week 6 verification guide](docs/12-week6-verification.md).
+
 ## Architecture
 
 The Next.js web app calls a FastAPI service. PostgreSQL owns identity, ACL, metadata, traces and evaluations; MinIO stores originals; Celery/Redis processes ingestion; Qdrant supplies dense and sparse candidates that the API fuses with RRF. The Agent is a bounded LangGraph with only read-only tools. See [architecture](docs/02-architecture.md), [Agent design](docs/11-agent.md), [retrieval](docs/10-retrieval.md), and [API contracts](docs/04-api-tool-contracts.md).
@@ -45,3 +66,7 @@ The Next.js web app calls a FastAPI service. PostgreSQL owns identity, ACL, meta
 ## Safety boundary
 
 Do not commit employer data, internal prompts, credentials, emails, logs, or derived evaluation cases without written approval. See [open-source boundary](docs/09-open-source-boundary.md).
+
+This prototype does not claim a measured 10,000-document production capacity, SLA, penetration
+test, security certification, or calibrated LLM security judge. The committed tests and fixtures
+are explicitly company-neutral and synthetic.

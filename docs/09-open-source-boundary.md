@@ -8,3 +8,7 @@ Real cases must be abstracted into synthetic patterns and reviewed under the emp
 
 Apache-2.0 applies to this prototype. Company contributions or deployment-specific adapters require a fresh ownership and release review before distribution.
 
+Week 6 threat/load fixtures must retain the literal `synthetic-company-neutral` classification.
+Performance artifacts may contain aggregate timings and bounded counts only; do not commit target
+URLs, environment names, credentials, raw errors, source bodies, trace payloads or screenshots from
+real deployments.

@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class LoginRequest(BaseModel):
@@ -41,6 +41,7 @@ class DocumentView(BaseModel):
 
 
 class SearchFilters(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     document_ids: list[str] = Field(default_factory=list)
     created_from: datetime | None = None
     created_to: datetime | None = None
@@ -65,12 +66,14 @@ class SearchFilters(BaseModel):
 
 
 class SearchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     query: str = Field(min_length=1, max_length=4000)
     filters: SearchFilters = Field(default_factory=SearchFilters)
     top_k: int = Field(default=10, ge=1, le=20)
 
 
 class ChatRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     query: str = Field(min_length=1, max_length=4000)
     conversation_id: str | None = None
     filters: SearchFilters = Field(default_factory=SearchFilters)
@@ -104,6 +107,7 @@ class EvaluationSource(BaseModel):
 
 
 class EvaluationCaseDefinition(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     id: str = Field(min_length=1, max_length=120)
     query: str = Field(min_length=1, max_length=4000)
     language: str = Field(default="en", pattern=r"^[a-z]{2}(?:-[A-Z]{2})?$")
@@ -126,12 +130,14 @@ class EvaluationCaseDefinition(BaseModel):
 
 
 class EvaluationSuiteDefinition(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     schema_version: int = Field(default=1, ge=1, le=1)
     name: str = Field(min_length=1, max_length=120)
     version: str = Field(min_length=1, max_length=40)
     description: str = Field(default="", max_length=1000)
     data_classification: str
     configuration: dict[str, str | int | float | bool] = Field(default_factory=dict)
+    fixtures: dict[str, Any] = Field(default_factory=dict)
     cases: list[EvaluationCaseDefinition] = Field(min_length=1, max_length=500)
 
     @field_validator("data_classification")

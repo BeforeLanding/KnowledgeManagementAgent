@@ -1,12 +1,12 @@
 import hashlib
 import json
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .acl import allowed_space_ids, has_global_role, memberships, require_space_role
@@ -20,6 +20,7 @@ from .documents import (
     normalize_filename,
 )
 from .evaluation import persist_suite_outcome, public_outcome, run_evaluation_suite
+from .health import readiness_report
 from .models import (
     AgentRun,
     AuditLog,
@@ -33,6 +34,7 @@ from .models import (
     SpaceRole,
     User,
 )
+from .observability import EVALUATION_GATES, QUEUE_EVENTS, bounded
 from .parsers import SUPPORTED
 from .schemas import (
     ChatRequest,
@@ -70,7 +72,9 @@ def enqueue_ingestion(db: Session, document: Document) -> None:
     """Dispatch ingestion while keeping a recoverable state if Redis is unavailable."""
     try:
         ingest_document.delay(document.id)
+        QUEUE_EVENTS.labels("ingestion", "dispatched").inc()
     except Exception as exc:
+        QUEUE_EVENTS.labels("ingestion", "dispatch_failed").inc()
         document.status = DocumentStatus.failed_retryable
         document.error_code = "QUEUE_ERROR"
         document.error_message = redact(str(exc))[:1000]
@@ -410,9 +414,14 @@ def _bounded_run(
         )
     except ValueError as exc:
         raise HTTPException(404, str(exc)) from exc
-    persisted = persist_suite_outcome(db, user.id, outcome)
+    gate_passed = outcome.passed == outcome.total
+    EVALUATION_GATES.labels(
+        bounded("suite", outcome.suite), "success" if gate_passed else "failure"
+    ).inc()
+    persisted = persist_suite_outcome(db, user.id, outcome, gate_passed=gate_passed)
     result = public_outcome(outcome)
     result["run_id"] = persisted.id
+    result["gate_passed"] = gate_passed
     return result
 
 
@@ -507,4 +516,44 @@ def evaluation_run(
             }
             for item in results
         ],
+    }
+
+
+@router.get("/operations/status")
+def operations_status(
+    user: Annotated[User, Depends(current_user)], db: Annotated[Session, Depends(get_db)]
+):
+    """Small redacted status view; never returns topology, content, or identifiers."""
+    del user
+    latest = db.scalar(select(EvaluationRun).order_by(EvaluationRun.started_at.desc()).limit(1))
+    cutoff = datetime.now(UTC) - timedelta(hours=24)
+    failed_runs = db.scalar(
+        select(func.count()).select_from(AgentRun).where(
+            AgentRun.created_at >= cutoff, AgentRun.status == "failed"
+        )
+    ) or 0
+    refused_runs = db.scalar(
+        select(func.count()).select_from(AgentRun).where(
+            AgentRun.created_at >= cutoff, AgentRun.status == "insufficient_evidence"
+        )
+    ) or 0
+    return {
+        "release": settings.release_version,
+        "readiness": readiness_report(),
+        "evaluation_gate": None
+        if latest is None
+        else {
+            "suite": latest.suite_name,
+            "version": latest.suite_version,
+            "status": latest.status,
+            "gate_passed": latest.gate_passed,
+            "completed_at": latest.completed_at,
+        },
+        "security_summary": {
+            "window_hours": 24,
+            "failed_agent_runs": failed_runs,
+            "refusals": refused_runs,
+            "postgres_authoritative": True,
+            "details_redacted": True,
+        },
     }

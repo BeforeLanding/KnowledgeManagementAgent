@@ -1,0 +1,30 @@
+{
+  "configuration": {
+    "chunking": "tokens=700;overlap=100",
+    "code": "development",
+    "embedding": "local-hash-384",
+    "model": "fake-deterministic-v1",
+    "prompt": "bounded-agent-v1",
+    "provider": "fake",
+    "retrieval": "dense+sparse-rrf60+lexical-v1"
+  },
+  "data_classification": "synthetic-company-neutral",
+  "metrics": {
+    "acl_isolation": 1.0,
+    "case_pass_rate": 1.0,
+    "citation_accuracy": 1.0,
+    "citation_completeness": 1.0,
+    "conflict_preservation": 1.0,
+    "forbidden_source_safety": 1.0,
+    "mrr": 1.0,
+    "ndcg@5": 1.0,
+    "prompt_injection_safety": 1.0,
+    "recall@5": 1.0,
+    "refusal_accuracy": 1.0,
+    "required_facts_accuracy": 1.0,
+    "status_accuracy": 1.0
+  },
+  "schema_version": 1,
+  "suite": "threat",
+  "suite_version": "1.0.0"
+}

@@ -9,6 +9,7 @@ from collections.abc import Callable, Iterator
 import httpx
 
 from .config import Settings, get_settings
+from .observability import PROVIDER_LATENCY, PROVIDER_REQUESTS
 
 
 def terms(text: str) -> list[str]:
@@ -58,13 +59,22 @@ class FakeChatProvider(ChatProvider):
     """Deterministic, model-free provider for tests and local development."""
 
     def stream_answer(self, query: str, contexts: list[dict]) -> Iterator[str]:
-        if not contexts:
-            yield "I could not find sufficient evidence in the accessible knowledge spaces."
-            return
-        yield "Based on the authorized evidence:\n"
-        for item in contexts:
-            excerpt = " ".join(item["text"].split())[:360]
-            yield f"- {item['filename']} ({item['locator']}): {excerpt}\n"
+        started = time.perf_counter()
+        result = "success"
+        try:
+            if not contexts:
+                yield "I could not find sufficient evidence in the accessible knowledge spaces."
+                return
+            yield "Based on the authorized evidence:\n"
+            for item in contexts:
+                excerpt = " ".join(item["text"].split())[:360]
+                yield f"- {item['filename']} ({item['locator']}): {excerpt}\n"
+        except Exception:
+            result = "failure"
+            raise
+        finally:
+            PROVIDER_REQUESTS.labels("fake", result).inc()
+            PROVIDER_LATENCY.labels("fake", result).observe(time.perf_counter() - started)
 
 
 class OpenAICompatibleProvider(ChatProvider):
@@ -183,18 +193,28 @@ class OpenAICompatibleProvider(ChatProvider):
             ) from exc
 
     def stream_answer(self, query: str, contexts: list[dict]) -> Iterator[str]:
+        started = time.perf_counter()
         attempts = self.settings.provider_max_attempts
-        for attempt in range(attempts):
-            emitted = False
-            try:
-                for token in self._request_once(query, contexts):
-                    emitted = True
-                    yield token
-                return
-            except ProviderError as exc:
-                if emitted or not exc.retryable or attempt + 1 >= attempts:
-                    raise
-                self.sleep(self.settings.provider_retry_backoff_seconds * (2**attempt))
+        try:
+            for attempt in range(attempts):
+                emitted = False
+                try:
+                    for token in self._request_once(query, contexts):
+                        emitted = True
+                        yield token
+                    PROVIDER_REQUESTS.labels("openai", "success").inc()
+                    PROVIDER_LATENCY.labels("openai", "success").observe(
+                        time.perf_counter() - started
+                    )
+                    return
+                except ProviderError as exc:
+                    if emitted or not exc.retryable or attempt + 1 >= attempts:
+                        raise
+                    self.sleep(self.settings.provider_retry_backoff_seconds * (2**attempt))
+        except Exception:
+            PROVIDER_REQUESTS.labels("openai", "failure").inc()
+            PROVIDER_LATENCY.labels("openai", "failure").observe(time.perf_counter() - started)
+            raise
 
 
 def chat_provider() -> ChatProvider:

@@ -1,4 +1,5 @@
 import re
+import unicodedata
 from pathlib import PurePosixPath
 
 from sqlalchemy import func, select
@@ -15,13 +16,25 @@ RETRYABLE_DOCUMENT_STATUSES = {
 
 def normalize_filename(value: str) -> str:
     """Return a storage-safe basename while preserving the user-visible name."""
-    filename = PurePosixPath(value.replace("\\", "/")).name.strip()
+    normalized = unicodedata.normalize("NFKC", value)
+    filename = PurePosixPath(normalized.replace("\\", "/")).name.strip()
     if not filename or filename in {".", ".."}:
         raise ValueError("A valid filename is required")
     if len(filename) > 255:
         raise ValueError("Filename exceeds 255 characters")
-    if re.search(r"[\x00-\x1f\x7f]", filename):
+    if re.search(r"[\x00-\x1f\x7f\u202a-\u202e\u2066-\u2069]", filename):
         raise ValueError("Filename contains control characters")
+    stem = filename.rsplit(".", 1)[0].rstrip(" .").upper()
+    reserved = {
+        "CON",
+        "PRN",
+        "AUX",
+        "NUL",
+        *(f"COM{i}" for i in range(1, 10)),
+        *(f"LPT{i}" for i in range(1, 10)),
+    }
+    if stem in reserved:
+        raise ValueError("Filename uses a reserved device name")
     return filename
 
 

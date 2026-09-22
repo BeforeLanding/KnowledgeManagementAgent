@@ -18,3 +18,7 @@ Supported digital-document parsing is at least 98%; Recall@5 at least 90%; nDCG@
 
 OCR, live mailbox sync, logistics entity extraction, write tools, multi-tenant SaaS, Kubernetes and production SSO are excluded.
 
+The 10,000-document and sub-second retrieval targets are capacity objectives, not claims. Week 6
+ships a bounded, repeatable measurement method; only an explicitly executed Compose or
+production-like report can substantiate them. The default unit suite does not generate or ingest
+10,000 documents.

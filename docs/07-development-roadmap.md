@@ -7,6 +7,9 @@
 - Week 5: completed versioned evaluation schema, isolated deterministic Agent runner, synthetic
   smoke/regression suites, citation/ACL/injection metrics, versioned baseline Gate, bounded APIs
   and a lightweight evaluation view.
-- Week 6: threat tests, 10k-document load test, observability, backups, screenshots and release hardening.
+- Week 6: completed deterministic threat tests and zero-tolerance Gate; bounded 10k-capable
+  synthetic/load tooling; low-cardinality observability, readiness and alert rules; dry-run-safe
+  backup/restore/reconciliation operations; lightweight release status UI; and Compose/release
+  hardening. The 10k and Compose workloads are opt-in and no unexecuted capacity result is claimed.
 
 The repository implements the vertical MVP. Remaining hardening work is explicitly tracked in documentation rather than hidden behind demo behaviour. A feature is done only when its contract, authorization rule, error behaviour, tests and operating notes are present.

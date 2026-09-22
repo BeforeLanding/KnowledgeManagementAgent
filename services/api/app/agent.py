@@ -1,3 +1,4 @@
+import logging
 import re
 import time
 import uuid
@@ -10,12 +11,14 @@ from sqlalchemy.orm import Session
 
 from .config import get_settings
 from .models import AgentRun, Conversation
+from .observability import CITATIONS, REFUSALS, record_agent_node, record_security_failure
 from .providers import ChatProvider, ProviderError, chat_provider
 from .schemas import ChatResponse, Citation, SearchFilters
 from .search import read_chunks, search_knowledge
 from .security import redact, redact_value
 
 REFUSAL = "I could not find sufficient evidence in the accessible knowledge spaces."
+logger = logging.getLogger("kma.agent")
 
 
 class AgentState(TypedDict, total=False):
@@ -48,6 +51,7 @@ class AgentRunError(RuntimeError):
 
 
 def _trace_entry(node: str, started: float, status: str = "completed", **details: Any) -> dict:
+    record_agent_node(node, started, "success" if status == "completed" else "failure")
     return redact_value(
         {
             "node": node,
@@ -122,12 +126,14 @@ def _build_graph(
     def security_node(state: AgentState) -> dict:
         started = time.perf_counter()
         if settings.agent_max_tool_calls < 2:
+            record_security_failure("configuration")
             raise AgentRunError(
                 "AGENT_SECURITY_ERROR", "Agent tool budget is too small", False, 500
             )
         if conversation_id:
             conversation = db.get(Conversation, conversation_id)
             if not conversation or conversation.user_id != user_id:
+                record_security_failure("conversation_scope")
                 raise AgentRunError(
                     "AGENT_SECURITY_ERROR", "Conversation is not accessible", False, 403
                 )
@@ -235,6 +241,7 @@ def _build_graph(
 
     def refuse_node(state: AgentState) -> dict:
         started = time.perf_counter()
+        REFUSALS.labels("insufficient_evidence").inc()
         get_stream_writer()({"event": "token", "data": {"text": REFUSAL}})
         return {
             "status": "insufficient_evidence",
@@ -251,6 +258,7 @@ def _build_graph(
         writer = get_stream_writer()
         for citation in citations:
             writer({"event": "citation", "data": citation.model_dump()})
+        CITATIONS.labels("authorized").inc(len(citations))
         trace = state["trace"] + [
             _trace_entry(
                 "trace",
@@ -331,6 +339,7 @@ def stream_agent(
             citations=[Citation.model_validate(item) for item in latest.get("citations", [])],
             trace_id=trace_id,
         )
+        logger.info("agent_run_completed trace_id=%s status=%s", trace_id, response.status)
         yield {
             "event": "run_completed",
             "data": response.model_dump(),
@@ -348,6 +357,7 @@ def stream_agent(
             status_code = 500
             message = "Agent execution failed"
         safe_message = redact(message)
+        logger.warning("agent_run_failed trace_id=%s code=%s", trace_id, code)
         trace = latest.get("trace", []) + [
             _trace_entry("error", started, "failed", code=code, error=safe_message)
         ]

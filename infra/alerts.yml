@@ -1,0 +1,33 @@
+groups:
+  - name: kma-week6
+    rules:
+      - alert: KmaDependencyNotReady
+        expr: min(kma_dependency_ready) == 0
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: A required KMA dependency is not ready
+      - alert: KmaRetrievalP95High
+        expr: histogram_quantile(0.95, sum by (le) (rate(kma_retrieval_stage_seconds_bucket{stage="total"}[5m]))) > 1
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: Retrieval P95 exceeds the one-second target
+      - alert: KmaProviderErrors
+        expr: sum(rate(kma_provider_requests_total{result="failure"}[5m])) > 0.05
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: Provider failures are elevated
+      - alert: KmaIngestionFailures
+        expr: sum(rate(kma_ingestion_transitions_total{status=~"failed_.*"}[10m])) > 0.05
+        for: 15m
+        labels: {severity: warning}
+        annotations:
+          summary: Ingestion failures are elevated
+      - alert: KmaSecurityBoundaryFailure
+        expr: increase(kma_security_failures_total{category=~"authorization|citation|prompt_injection"}[15m]) > 0
+        for: 0m
+        labels: {severity: critical}
+        annotations:
+          summary: A zero-tolerance security boundary failed

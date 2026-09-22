@@ -35,7 +35,11 @@ from app.models import (  # noqa: E402
     User,
 )
 
-SUITE_PATH = ROOT / "evaluations" / "week5-synthetic-regression-v1.json"
+SUITE_PATHS = {
+    "smoke": ROOT / "evaluations" / "week5-synthetic-regression-v1.json",
+    "regression": ROOT / "evaluations" / "week5-synthetic-regression-v1.json",
+    "threat": ROOT / "evaluations" / "week6-synthetic-threat-v1.json",
+}
 
 
 class LocalSyntheticQdrant:
@@ -69,8 +73,9 @@ class LocalSyntheticQdrant:
 
 
 def build_local_database(profile: str) -> tuple[Session, str, str]:
-    raw = json.loads(SUITE_PATH.read_text(encoding="utf-8"))
-    definition = load_suite_definition(SUITE_PATH)
+    suite_path = SUITE_PATHS[profile]
+    raw = json.loads(suite_path.read_text(encoding="utf-8"))
+    definition = load_suite_definition(suite_path)
     engine = create_engine(
         "sqlite:///:memory:",
         connect_args={"check_same_thread": False},
@@ -167,7 +172,7 @@ def build_local_database(profile: str) -> tuple[Session, str, str]:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--suite", choices=("smoke", "regression"), default="smoke")
+    parser.add_argument("--suite", choices=tuple(SUITE_PATHS), default="smoke")
     parser.add_argument("--case", help="Run one stable case ID from the selected suite")
     parser.add_argument("--baseline", type=Path)
     parser.add_argument("--max-regression", type=float, default=0.02)
@@ -192,7 +197,8 @@ def main() -> int:
             payload["baseline_written"] = str(args.write_baseline)
         baseline_path = args.baseline
         if baseline_path is None and not args.write_baseline and not args.case:
-            baseline_path = ROOT / "evaluations" / "baselines" / f"{suite}-v1.json"
+            candidate = ROOT / "evaluations" / "baselines" / f"{suite}-v1.json"
+            baseline_path = candidate if candidate.exists() else None
         if baseline_path:
             gate_passed, failures = evaluate_gate(
                 outcome, read_baseline(baseline_path), args.max_regression

@@ -1,5 +1,6 @@
 from collections import Counter
 from dataclasses import dataclass
+from time import perf_counter
 
 from qdrant_client import QdrantClient, models
 from sqlalchemy import and_, select
@@ -7,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from .config import get_settings
 from .models import Chunk, Document, DocumentStatus, SpaceMembership
+from .observability import RETRIEVAL_LATENCY
 from .providers import embedding_provider, terms
 from .schemas import SearchFilters
 
@@ -232,41 +234,65 @@ def search_knowledge(
     filters: SearchFilters,
     top_k: int = 10,
 ) -> list[dict]:
+    total_started = perf_counter()
     # PostgreSQL derives authorization before any request reaches the vector index.
+    stage_started = perf_counter()
     space_ids = _authorized_space_ids(db, user_id)
+    RETRIEVAL_LATENCY.labels("authorize", "success").observe(perf_counter() - stage_started)
     if not space_ids:
+        RETRIEVAL_LATENCY.labels("total", "empty").observe(perf_counter() - total_started)
         return []
     qdrant = client()
     ensure_collection(qdrant)
     indices, values = embedding_provider.sparse(query)
     candidate_limit = max(top_k * RETRIEVAL_CANDIDATE_MULTIPLIER, RETRIEVAL_CANDIDATE_FLOOR)
     qdrant_filter = _filters(space_ids, filters)
-    dense = qdrant.query_points(
-        collection_name=COLLECTION,
-        query=embedding_provider.dense(query),
-        using="dense",
-        query_filter=qdrant_filter,
-        limit=candidate_limit,
-        with_payload=False,
-    )
-    sparse = qdrant.query_points(
-        collection_name=COLLECTION,
-        query=models.SparseVector(indices=indices, values=values),
-        using="sparse",
-        query_filter=qdrant_filter,
-        limit=candidate_limit,
-        with_payload=False,
-    )
+    stage_started = perf_counter()
+    try:
+        dense = qdrant.query_points(
+            collection_name=COLLECTION,
+            query=embedding_provider.dense(query),
+            using="dense",
+            query_filter=qdrant_filter,
+            limit=candidate_limit,
+            with_payload=False,
+        )
+    except Exception:
+        RETRIEVAL_LATENCY.labels("dense", "failure").observe(perf_counter() - stage_started)
+        RETRIEVAL_LATENCY.labels("total", "failure").observe(perf_counter() - total_started)
+        raise
+    RETRIEVAL_LATENCY.labels("dense", "success").observe(perf_counter() - stage_started)
+    stage_started = perf_counter()
+    try:
+        sparse = qdrant.query_points(
+            collection_name=COLLECTION,
+            query=models.SparseVector(indices=indices, values=values),
+            using="sparse",
+            query_filter=qdrant_filter,
+            limit=candidate_limit,
+            with_payload=False,
+        )
+    except Exception:
+        RETRIEVAL_LATENCY.labels("sparse", "failure").observe(perf_counter() - stage_started)
+        RETRIEVAL_LATENCY.labels("total", "failure").observe(perf_counter() - total_started)
+        raise
+    RETRIEVAL_LATENCY.labels("sparse", "success").observe(perf_counter() - stage_started)
     fused = reciprocal_rank_fusion(
         [[str(point.id) for point in dense.points], [str(point.id) for point in sparse.points]]
     )
     # Membership and every document filter are checked again from PostgreSQL.
+    stage_started = perf_counter()
     authoritative = _authoritative_candidates(
         db, user_id, [item.chunk_id for item in fused], filters
     )
+    RETRIEVAL_LATENCY.labels("postgres_recheck", "success").observe(
+        perf_counter() - stage_started
+    )
+    stage_started = perf_counter()
     reranked = rerank_candidates(
         query, fused, {chunk_id: row[0].text for chunk_id, row in authoritative.items()}
     )
+    RETRIEVAL_LATENCY.labels("rerank", "success").observe(perf_counter() - stage_started)
     results = []
     for candidate, score in reranked[:top_k]:
         chunk, document = authoritative[candidate.chunk_id]
@@ -283,6 +309,9 @@ def search_knowledge(
                 "created_at": document.created_at.isoformat(),
             }
         )
+    RETRIEVAL_LATENCY.labels("total", "success" if results else "empty").observe(
+        perf_counter() - total_started
+    )
     return results
 
 

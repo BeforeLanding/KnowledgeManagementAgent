@@ -1,6 +1,7 @@
 from sqlalchemy import select
 
-from .database import Base, SessionLocal, engine
+from .config import get_settings
+from .database import SessionLocal
 from .evaluation import evaluation_configuration
 from .models import (
     EvaluationCase,
@@ -14,7 +15,8 @@ from .security import hash_password
 
 
 def seed() -> None:
-    Base.metadata.create_all(engine)
+    if not get_settings().seed_demo_data:
+        return
     with SessionLocal() as db:
         if db.scalar(select(User).limit(1)):
             has_smoke_cases = db.scalar(

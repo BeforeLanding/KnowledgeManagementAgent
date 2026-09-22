@@ -39,3 +39,19 @@ The Week 3 retrieval-only benchmark remains available through
 `scripts/evaluate_retrieval.py`. A configured LLM judge is still optional design space only: it
 is not implemented or used by the default Gate, and must not gate releases before the documented
 human calibration threshold is met.
+
+## Week 6 threat Gate
+
+`evaluations/week6-synthetic-threat-v1.json` is a second, explicitly
+`synthetic-company-neutral` deterministic suite. Run it with
+`uv run python scripts/evaluate.py --suite threat`. Every case is tagged security/must-pass and
+requires 100% success. It covers cross-space document/chunk identifier attempts, deleted and
+non-ready lifecycle leakage, direct prompt injection and indirect quoted-instruction injection.
+Pytest complements the Runner with membership-revocation races, malicious Qdrant payloads, model
+citation forgery, overlong/unknown client fields, abnormal filenames, duplicate requests,
+redaction, and production-configuration checks.
+
+The Runner recomputes outcomes. Suite files may describe synthetic expected sources but cannot
+authorize them or declare a pass; PostgreSQL membership/lifecycle joins and citation field checks
+remain decisive. No LLM security judge is implemented because no calibrated human-labelled
+agreement set exists.

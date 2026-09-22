@@ -21,3 +21,8 @@ If Qdrant is unavailable, search fails as an infrastructure error; it does not f
 ## Verification
 
 Unit tests use in-memory SQLite and fake Qdrant responses, so no PostgreSQL, Qdrant, MinIO, OpenAI or other paid service is needed. The fixed synthetic benchmark reports Recall@K, MRR and binary-relevance nDCG and can be run with `uv run python scripts/evaluate_retrieval.py`.
+
+Week 6 threat tests additionally feed forged payload content, filenames, document IDs and space IDs
+from a fake Qdrant response. `with_payload=False` and the PostgreSQL join ensure only the candidate
+point ID has influence. Retrieval stage histograms use the bounded labels `authorize`, `dense`,
+`sparse`, `postgres_recheck`, `rerank` and `total`.

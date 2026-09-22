@@ -3,6 +3,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .models import SpaceMembership, SpaceRole
+from .observability import record_security_failure
 
 ROLE_RANK = {SpaceRole.viewer: 1, SpaceRole.curator: 2, SpaceRole.admin: 3}
 
@@ -29,5 +30,6 @@ def require_space_role(
         )
     )
     if not member or ROLE_RANK[member.role] < ROLE_RANK[minimum]:
+        record_security_failure("authorization")
         raise HTTPException(403, "Insufficient knowledge-space permission")
     return member

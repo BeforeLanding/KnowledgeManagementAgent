@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from .config import get_settings
 from .database import get_db
 from .models import User
+from .observability import record_security_failure
 
 ph = PasswordHasher()
 oauth2 = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
@@ -52,8 +53,10 @@ def current_user(
             raise error
         user = db.get(User, payload.get("sub"))
     except (JWTError, TypeError):
+        record_security_failure("authentication")
         raise error from None
     if not user or not user.is_active:
+        record_security_failure("authentication")
         raise error
     return user
 
