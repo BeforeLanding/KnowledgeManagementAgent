@@ -1,5 +1,7 @@
 # Knowledge Management Agent
 
+[![CI](https://github.com/BeforeLanding/KnowledgeManagementAgent/actions/workflows/ci.yml/badge.svg)](https://github.com/BeforeLanding/KnowledgeManagementAgent/actions/workflows/ci.yml)
+
 [English](README.md) | [简体中文](README.zh.md)
 
 一个评测驱动的双语企业级 RAG Agent，支持知识空间 ACL、混合检索、可靠引用、Trace 回放和确定性回归检查。仓库仅包含公司无关的合成数据。

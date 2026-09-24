@@ -1,5 +1,7 @@
 # Knowledge Management Agent
 
+[![CI](https://github.com/BeforeLanding/KnowledgeManagementAgent/actions/workflows/ci.yml/badge.svg)](https://github.com/BeforeLanding/KnowledgeManagementAgent/actions/workflows/ci.yml)
+
 [English](README.md) | [简体中文](README.zh.md)
 
 An evaluation-driven, bilingual enterprise RAG agent with knowledge-space ACLs, hybrid retrieval, grounded citations, trace replay, and deterministic regression checks. The repository contains only synthetic, company-neutral data.
