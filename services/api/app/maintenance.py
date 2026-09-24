@@ -2,7 +2,7 @@
 
 from collections.abc import Iterable
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 
 @dataclass(frozen=True)
@@ -53,9 +53,17 @@ def validate_restore_confirmation(target_environment: str | None, confirmation: 
 
 def safe_child(root: Path, relative_name: str) -> Path:
     """Resolve a backup member without permitting absolute paths or traversal."""
-    relative = Path(relative_name.replace("\\", "/"))
-    if relative.is_absolute() or ".." in relative.parts:
+    normalized_name = relative_name.replace("\\", "/")
+    posix_name = PurePosixPath(normalized_name)
+    windows_name = PureWindowsPath(relative_name)
+    if (
+        posix_name.is_absolute()
+        or windows_name.is_absolute()
+        or bool(windows_name.drive)
+        or ".." in posix_name.parts
+    ):
         raise ValueError("backup member path is unsafe")
+    relative = Path(*posix_name.parts)
     root_resolved = root.resolve()
     destination = (root_resolved / relative).resolve()
     if destination != root_resolved and root_resolved not in destination.parents:

@@ -31,10 +31,17 @@ def test_restore_requires_exact_named_target_confirmation():
 
 def test_backup_member_paths_cannot_escape_target(tmp_path: Path):
     assert safe_child(tmp_path, "objects/synthetic.txt").parent == (tmp_path / "objects").resolve()
-    with pytest.raises(ValueError):
-        safe_child(tmp_path, "../outside.txt")
-    with pytest.raises(ValueError):
-        safe_child(tmp_path, "C:/outside.txt")
+    unsafe_names = [
+        "../outside.txt",
+        "..\\outside.txt",
+        "/outside.txt",
+        "C:/outside.txt",
+        "C:outside.txt",
+        "\\\\server\\share\\outside.txt",
+    ]
+    for unsafe_name in unsafe_names:
+        with pytest.raises(ValueError):
+            safe_child(tmp_path, unsafe_name)
 
 
 def test_consistency_report_finds_all_drift_without_repairing():
