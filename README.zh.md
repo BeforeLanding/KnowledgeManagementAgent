@@ -4,7 +4,13 @@
 
 [English](README.md) | [简体中文](README.zh.md)
 
-一个评测驱动的双语企业级 RAG Agent，支持知识空间 ACL、混合检索、可靠引用、Trace 回放和确定性回归检查。仓库仅包含公司无关的合成数据。
+一个面向企业知识管理场景的双语 RAG 原型，支持知识空间 ACL、混合检索、授权来源引用、执行 Trace 查看和确定性回归检查。仓库仅包含公司无关的合成数据。
+
+## 实习项目优化
+
+面向 AI 应用 / Agent 后端研发实习，与第一项目 [mini-DSH](https://github.com/BeforeLanding/mini-DSH) 形成互补：重点优化双语检索效果、答案证据验证和异步数据一致性。详见[优化方案](docs/13-internship-optimization-plan.zh.md)与[实操清单](docs/14-internship-execution-checklist.zh.md)。这些任务是待执行计划，不是已完成结果。
+
+当前 dense 为本地哈希词项向量，默认评测使用 Fake Provider；引用验证保证来源字段与访问权限，不代表答案断言已经获得语义支持。真实编码器、真实模型效果报告和服务端到端验证按上述清单补齐。
 
 ## 快速开始
 

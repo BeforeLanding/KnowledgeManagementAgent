@@ -4,7 +4,13 @@
 
 [English](README.md) | [简体中文](README.zh.md)
 
-An evaluation-driven, bilingual enterprise RAG agent with knowledge-space ACLs, hybrid retrieval, grounded citations, trace replay, and deterministic regression checks. The repository contains only synthetic, company-neutral data.
+An evaluation-driven, bilingual RAG prototype for enterprise knowledge management, with knowledge-space ACLs, hybrid retrieval, authorized source citations, execution trace inspection, and deterministic regression checks. The repository contains only synthetic, company-neutral data.
+
+## Internship project improvements
+
+The [optimization plan](docs/13-internship-optimization-plan.zh.md) and [execution checklist](docs/14-internship-execution-checklist.zh.md) target AI application and Agent backend internships, complementing [mini-DSH](https://github.com/BeforeLanding/mini-DSH). They prioritize measured bilingual retrieval, answer evidence validation, and asynchronous data consistency. These are planned tasks, not completed results.
+
+The current dense encoder uses local term hashing and the default evaluation runner uses the Fake Provider. Citation checks establish source identity and visibility; they do not establish semantic support for answer claims. Real embeddings, live-model evaluation, and deployed end-to-end verification are tracked in the plan.
 
 ## Quick start
 

@@ -55,3 +55,22 @@ The Runner recomputes outcomes. Suite files may describe synthetic expected sour
 authorize them or declare a pass; PostgreSQL membership/lifecycle joins and citation field checks
 remain decisive. No LLM security judge is implemented because no calibrated human-labelled
 agreement set exists.
+
+## Interpretation and next evaluation work
+
+The current `citation_accuracy` metric measures authoritative source fields and visibility, not
+whether each answer claim is supported by the source. Current Agent retrieval metrics use the
+final citation document IDs; they are not measurements of the raw retrieval candidate list.
+Document-level rankings must collapse repeated document IDs before computing MRR/nDCG, with
+separate handling for alternative valid sources and evidence that must be combined.
+
+The Fake Provider and in-memory candidate runner validate engineering behavior. They cannot
+establish live-model groundedness, live-model prompt-injection resistance, Qdrant latency, or
+deployed capacity. Those require separately identified experiments.
+
+The [internship plan](13-internship-optimization-plan.zh.md) defines the next work: KM-01 fixes
+metric definitions and builds a grouped dev/test corpus; KM-03 compares retrieval configurations;
+KM-04 introduces evidence/claim checks; KM-05 records human-labelled live-model outcomes; KM-08
+measures the deployed stack. New runners and report files are planned, not existing commands.
+Preserve the deterministic Gate while adding those experiments. Report source validity, semantic
+support, refusal quality, latency and usage separately, including failures and unmeasured fields.
